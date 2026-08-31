@@ -352,7 +352,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: LifeLogs.DeskWindows.Samples::LifeLogs.WindowUtil.Samples.PcGameDemoGUI
   _font: {fileID: 12800000, guid: b234a8b90f98c6f4eb9a78d1338de853, type: 3}
   _drawBackground: 1
-  _pcGameOnly: 1
   _uiScale: 1.5
   _followMonitorScale: 1
 --- !u!114 &990257318
@@ -367,16 +366,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 90c06f33345c0d84f8ec70c90b6985be, type: 3}
   m_Name: 
   m_EditorClassIdentifier: LifeLogs.DeskWindows.Samples::LifeLogs.WindowUtil.Samples.PcGameTestController
-  _targetFrameRate: 60
-  _backgroundFrameRate: 15
-  _monitorIndex: 1
-  _customResolution: {x: 1600, y: 900}
-  _contentCamera: {fileID: 330585545}
-  _contentLayers:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  _trayIcon: {fileID: 2800000, guid: 9712d4426c1e79e429fb4d49a941b2bc, type: 3}
-  _trayTooltip: "DeskWindows \uD14C\uC2A4\uD2B8"
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

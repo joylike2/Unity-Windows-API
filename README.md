@@ -63,15 +63,68 @@ https://github.com/joylike2/Unity-Windows-API.git#v1.0.0
 **PlayerSettings 는 빌드 타임 설정이라 런타임 코드가 바꿀 수 없습니다.** 그래서 에디터 메뉴로 한 번 맞춰야 합니다.
 실행하면 **바뀔 항목을 먼저 보여주고 확인을 묻습니다.**
 
-| 메뉴 | 언제 |
-|---|---|
-| `Tools > WindowDeskAPI > Setup > PC Game` | 일반 PC 게임 |
-| `Tools > WindowDeskAPI > Setup > Desktop Wallpaper` | 바탕화면 게임 |
-| `Tools > WindowDeskAPI > Validate > PC Game` | 설정이 맞는지 검사 |
-| `Tools > WindowDeskAPI > Validate > Desktop Wallpaper` | 설정이 맞는지 검사 |
+`Tools > WindowDeskAPI` 아래에 메뉴가 있습니다.
+
+| 메뉴 | 대상 | 언제 |
+|---|---|---|
+| `Setup > PC Game` | PlayerSettings | 일반 PC 게임. **필수** |
+| `Setup > Desktop Wallpaper` | PlayerSettings · URP · 메인 카메라 | 바탕화면 게임. **필수** |
+| `Setup Camera` | 카메라 1대 | 바탕화면 게임. 카메라만 다시 맞출 때 |
+| `Setup Scene Scale` | 씬 전체 | 바탕화면 게임. 카메라 · 캔버스 · 관찰자를 한 번에 |
+| `Validate > PC Game` | — | 설정이 맞는지 검사 |
+| `Validate > Desktop Wallpaper` | — | 설정이 맞는지 검사 |
 
 > **바탕화면 게임은 하나라도 어긋나면 투명이 나오지 않습니다.** 빌드해 보기 전에 `Validate` 로 전부 `[정상]` 인지 확인하십시오.
 > `PlayerSettings` 는 `Ctrl+Z` 로 되돌릴 수 없습니다. 적용 전 값이 Console 에 남으니 필요하면 그걸 보고 손으로 되돌리십시오.
+> `Setup Camera` 와 `Setup Scene Scale` 은 **씬 오브젝트를 고치는 것이라 `Ctrl+Z` 로 되돌릴 수 있습니다.**
+
+　
+### 바탕화면 게임 — 카메라와 배율은 씬마다 따로 맞춥니다
+　
+`Setup > Desktop Wallpaper` 는 프로젝트 설정과 **그때 열려 있던 씬의 메인 카메라 하나**만 건드립니다. 씬이 여럿이거나 카메라를 나중에 추가했다면 그 씬에서 따로 맞춰야 합니다. 그래서 메뉴가 두 개 더 있습니다.
+
+**`Setup Camera`** — 카메라 한 대만 투명 출력용으로 고칩니다.
+
+| 항목 | 값 | 이유 |
+|---|---|---|
+| Clear Flags | `SolidColor` | 배경을 우리가 정한 색으로 덮어야 합니다 |
+| Background Color | `RGBA(0, 0, 0, 0)` | **알파만 0 으로는 부족합니다.** RGB 가 남아 있으면 그 색이 화면 전체에 더해집니다 |
+| Projection | `Orthographic` | 배율을 `orthographicSize` 하나로 정할 수 있어야 합니다 |
+
+대상 카메라는 **`MainCamera` 태그**로 찾습니다. 태그가 붙은 카메라가 여럿이거나 하나도 없으면 실행하지 않고 이유를 알려줍니다. 프리팹 편집 모드에서도 실행되지 않습니다.
+
+**`Setup Scene Scale`** — 씬 전체를 배율 대응 상태로 만듭니다. 비활성 오브젝트까지 포함해 **현재 씬만** 훑고, 다른 씬이나 프리팹 스테이지는 건드리지 않습니다.
+
+1. 씬의 **모든 카메라**에 위 카메라 설정을 적용
+2. 씬의 **모든 Canvas Scaler** 를 `Constant Pixel Size` 로 변경 — `scaleFactor` 로 배율을 반영하려면 이 모드여야 합니다
+3. **`DesktopGameObserver`** 오브젝트를 만들어 위에서 찾은 카메라·캔버스를 물립니다
+
+3번의 관찰자(`DeskSceneObserver`)가 런타임에 배율 변경을 받아 다시 계산합니다. 관찰자가 이미 있으면 **지우고 다시 만듭니다** — 도구가 만든 오브젝트라 잃을 것이 없고, 낡은 참조가 남는 편이 더 위험하기 때문입니다.
+
+　
+#### 관찰자 설정은 씬마다 다르게 둘 수 있습니다
+　
+`DesktopGameObserver` 의 인스펙터에서 고칩니다. 셋업 메뉴가 채운 목록에 **직접 더 넣어도 됩니다.**
+
+| 항목 | 기본값 | 뜻 |
+|---|---|---|
+| Cameras / Canvas Scalers | 셋업이 채움 | 대상 목록. 손으로 추가·제거 가능 |
+| Fix Camera Background | `true` | 투명 배경에 맞지 않는 카메라를 **실행 중에** 바로잡음 |
+| Scale Canvases | `true` | 캔버스에 배율을 걸지 |
+| Scale Cameras | `false` | 카메라 `orthographicSize` 에도 배율을 걸지 |
+| Scale Basis | `DPI` | 배율 기준 (아래) |
+| Reference Resolution | `1920 x 1080` | `REFERENCE_RESOLUTION` 기준일 때만 씀 |
+
+**배율 기준**
+
+| 기준 | 결과 | 어울리는 곳 |
+|---|---|---|
+| `DPI` | 윈도우 배율을 따라가 **화면에서의 물리적 크기**가 일정 | 바탕화면 게임 (아이콘·창과 크기감이 맞음) |
+| `REFERENCE_RESOLUTION` | 실제 세로 ÷ 기준 세로. **화면에서 차지하는 비율**이 일정 | 화면을 독점하는 전체화면 게임 |
+
+씬이 여럿이면 씬마다 관찰자가 하나씩 있으므로, **씬별로 기준과 대상을 다르게 둘 수 있습니다.** 예를 들어 게임 씬은 `DPI`, 타이틀 씬은 `REFERENCE_RESOLUTION` 으로 둘 수 있습니다.
+
+캔버스 하나만 맡기려면 `Setup Scene Scale` 대신 그 캔버스에 **`DeskDpiScaleBinder`** 컴포넌트를 붙이십시오. 배율을 바꾸면 안 되는 캔버스가 섞여 있을 때 씁니다.
 
 　
 　
@@ -351,7 +404,7 @@ string report = WindowDeskAPI.TransparentReport;       // 투명이 안 나올 �
 
 **빠져나올 수단을 반드시 남기십시오.** 창이 화면 전체를 덮고 클릭이 통과되므로, 트레이 메뉴나 단축키 없이는 게임을 끌 수 없습니다.
 
-`Runtime/Prefabs/DesktopGameObserver.prefab` 를 씬에 넣으면 모니터 배율이 바뀔 때 캔버스와 카메라를 자동으로 다시 맞춥니다. `Tools > WindowDeskAPI > Setup Scene Scale` 로도 붙일 수 있습니다.
+**카메라와 배율은 씬마다 따로 맞춰야 합니다.** `Tools > WindowDeskAPI > Setup Scene Scale` 이 씬의 카메라 · 캔버스를 고치고 `DesktopGameObserver` 를 붙여 줍니다. 카메라 한 대만 다시 맞추려면 `Setup Camera` 를 쓰십시오. 자세한 내용은 [카메라와 배율은 씬마다 따로 맞춥니다](#바탕화면-게임--카메라와-배율은-씬마다-따로-맞춥니다) 절에 있습니다.
 
 　
 ### 트레이 아이콘
@@ -533,10 +586,7 @@ float scale = WindowDeskAPI.CurrentDpiScale;
 | `DeskSceneObserver` | 씬 전체의 캔버스 · 카메라를 배율 변경에 맞춰 다시 계산 |
 | `DeskDpiScaleBinder` | 캔버스 하나만 맡김 |
 
-`DeskSceneObserver` 는 기준을 고를 수 있습니다.
-
-- **`DPI`** : 윈도우 디스플레이 배율을 따라가 **화면에서의 물리적 크기**가 일정해집니다. 바탕화면 아이콘·창과 크기감이 맞으므로 바탕화면 게임의 기본값입니다
-- **`REFERENCE_RESOLUTION`** : 실제 세로 해상도를 기준 세로로 나눈 값을 써 **화면에서 차지하는 비율**이 일정해집니다. 화면을 독점하는 전체화면 게임에 어울립니다
+`DeskSceneObserver` 는 씬마다 **배율 기준(`DPI` · `REFERENCE_RESOLUTION`)** 과 **대상(캔버스만 · 카메라도 · 카메라 배경 보정)** 을 인스펙터에서 고를 수 있습니다. 붙이는 방법과 기준 선택은 [바탕화면 게임 — 카메라와 배율은 씬마다 따로 맞춥니다](#바탕화면-게임--카메라와-배율은-씬마다-따로-맞춥니다) 절에 있습니다.
 
 　
 　
