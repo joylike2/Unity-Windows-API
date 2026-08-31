@@ -1,0 +1,34 @@
+{
+  "name": "dev.lifelogs.unity-windows-api",
+  "version": "1.0.0",
+  "displayName": "Unity Windows API",
+  "description": "A Unity desktop window control library. Handles monitors, resolutions, display modes, always-on-top, cursor confinement, frame rate and tray icons for PC games, plus borderless, transparent and click-through windows for wallpaper games. One static API, no platform branching in game code.",
+  "author": {
+    "name": "joylike2",
+    "email": "sky@lifelogs.dev",
+    "url": "https://github.com/joylike2"
+  },
+  "samples": [
+    {
+      "displayName": "Demos",
+      "description": "PC game, desktop wallpaper and tray demo scenes. IMGUI based, no Canvas required.",
+      "path": "Samples~"
+    }
+  ],
+  "keywords": [
+    "unity",
+    "window",
+    "desktop",
+    "monitor",
+    "resolution",
+    "fullscreen",
+    "borderless",
+    "transparent",
+    "click-through",
+    "wallpaper",
+    "tray",
+    "topmost",
+    "dpi",
+    "win32"
+  ]
+}

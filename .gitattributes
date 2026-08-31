@@ -1,0 +1,38 @@
+# 모든 텍스트 파일의 줄바꿈 문자 자동 통일
+* text=auto
+
+# 소스와 문서
+*.cs        text eol=lf
+*.md        text eol=lf
+*.json      text eol=lf
+*.asmdef    text eol=lf
+*.shader    text eol=lf
+*.cginc     text eol=lf
+*.hlsl      text eol=lf
+
+# 유니티가 만드는 YAML 자산. 텍스트지만 손으로 고치지 않는다
+*.meta          text eol=lf
+*.unity         text eol=lf
+*.prefab        text eol=lf
+*.asset         text eol=lf
+*.mat           text eol=lf
+*.anim          text eol=lf
+*.controller    text eol=lf
+*.inputactions  text eol=lf
+
+# 이진 파일. diff 와 줄바꿈 변환에서 제외한다
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.ttf   binary
+*.otf   binary
+*.wav   binary
+*.mp3   binary
+*.ogg   binary
+*.dll   binary
+*.so    binary
+*.dylib binary
+*.bundle binary
+*.unitypackage binary
