@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
@@ -81,18 +81,26 @@ namespace LifeLogs.WindowUtil {
         /// 나중에 조용히 아무 일도 일어나지 않는 상황을 없애기 위해서입니다.
         /// </summary>
         /// <param name="features">사용할 기능. 전부 쓰려면 <see cref="DESK_WINDOW_FEATURE.ALL"/>.</param>
+        /// <param name="enableBackgroundAlphaProbe">
+        /// 빈 자리 알파 진단을 켤지 여부. 기본은 false 입니다.
+        /// 켜면 매 프레임 화면을 한 번 더 읽어 프레임이 깎이므로 투명이 안 나오는 원인을 가릴 때만 켜십시오.
+        /// </param>
         /// <returns>선언한 기능이 전부 사용 가능하고 창 핸들도 확보했으면 true.</returns>
-        public static bool Initialize(DESK_WINDOW_FEATURE features) {
-            return InitializeCore(DESK_WINDOW_PROFILE.NONE, features);
+        public static bool Initialize(DESK_WINDOW_FEATURE features, bool enableBackgroundAlphaProbe = false) {
+            return InitializeCore(DESK_WINDOW_PROFILE.NONE, features, enableBackgroundAlphaProbe);
         }
 
         /// <summary>
         /// 사용 목적을 선언하고 창 핸들을 확보합니다. 필요한 기능이 한 번에 켜집니다.
         /// </summary>
         /// <param name="profiles">사용할 프로파일. 둘 다 쓰려면 비트 OR 로 넘깁니다.</param>
+        /// <param name="enableBackgroundAlphaProbe">
+        /// 빈 자리 알파 진단을 켤지 여부. 기본은 false 입니다.
+        /// 켜면 매 프레임 화면을 한 번 더 읽어 프레임이 깎이므로 투명이 안 나오는 원인을 가릴 때만 켜십시오.
+        /// </param>
         /// <returns>선언한 기능이 전부 사용 가능하고 창 핸들도 확보했으면 true.</returns>
-        public static bool Initialize(DESK_WINDOW_PROFILE profiles) {
-            return InitializeCore(profiles, ResolveProfileFeatures(profiles));
+        public static bool Initialize(DESK_WINDOW_PROFILE profiles, bool enableBackgroundAlphaProbe = false) {
+            return InitializeCore(profiles, ResolveProfileFeatures(profiles), enableBackgroundAlphaProbe);
         }
 
         /// <summary>
@@ -100,12 +108,19 @@ namespace LifeLogs.WindowUtil {
         /// </summary>
         /// <param name="profiles">사용할 프로파일. 둘 다 쓰려면 비트 OR 로 넘깁니다.</param>
         /// <param name="extraFeatures">프로파일에 더할 기능.</param>
-        public static bool Initialize(DESK_WINDOW_PROFILE profiles, DESK_WINDOW_FEATURE extraFeatures) {
-            return InitializeCore(profiles, ResolveProfileFeatures(profiles) | extraFeatures);
+        /// <param name="enableBackgroundAlphaProbe">
+        /// 빈 자리 알파 진단을 켤지 여부. 기본은 false 입니다.
+        /// 켜면 매 프레임 화면을 한 번 더 읽어 프레임이 깎이므로 투명이 안 나오는 원인을 가릴 때만 켜십시오.
+        /// </param>
+        public static bool Initialize(DESK_WINDOW_PROFILE profiles, DESK_WINDOW_FEATURE extraFeatures,
+                                      bool enableBackgroundAlphaProbe = false) {
+            return InitializeCore(profiles, ResolveProfileFeatures(profiles) | extraFeatures,
+                                  enableBackgroundAlphaProbe);
         }
 
         /// <summary> 모든 오버로드가 모이는 실제 초기화 경로. </summary>
-        private static bool InitializeCore(DESK_WINDOW_PROFILE profiles, DESK_WINDOW_FEATURE features) {
+        private static bool InitializeCore(DESK_WINDOW_PROFILE profiles, DESK_WINDOW_FEATURE features,
+                                           bool enableBackgroundAlphaProbe) {
             // 창을 제어할 수 없는 환경(에디터 · 미지원 플랫폼)에서는 아무 상태도 만들지 않는다.
             // 절반만 켜 두면 조회는 되는데 창은 안 바뀌어, 무엇이 되는지 판단하기 어려워진다.
             if (!DeskPlatform.IsWindowControlEnabled) {
@@ -122,6 +137,9 @@ namespace LifeLogs.WindowUtil {
             EnabledFeatures = features & DeskPlatform.SupportedFeatures;
             _warnedFeatures = DESK_WINDOW_FEATURE.NONE;
             IsInitialized = true;
+
+            // 판정기가 뜨기 전에 정해 두어야 첫 프레임부터 선언한 대로 돈다.
+            DeskHitTest.IsBackgroundAlphaProbeEnabled = enableBackgroundAlphaProbe;
 
             if (unsupported != DESK_WINDOW_FEATURE.NONE) {
                 Debug.LogWarning($"[WindowDeskAPI] 이 플랫폼은 {unsupported} 를 제공하지 않아 선언에서 제외했습니다.");
@@ -720,8 +738,21 @@ namespace LifeLogs.WindowUtil {
         /// <summary>
         /// 화면 빈 자리에서 마지막으로 읽은 알파. 음수면 아직 읽은 적이 없다.
         /// 투명이 안 나올 때 0 에 가까우면 창 설정 문제, 1 에 가까우면 렌더 파이프라인이 알파를 밀고 있는 것이다.
+        /// <see cref="EnableBackgroundAlphaProbe"/> 를 켜야 값이 채워진다.
         /// </summary>
         public static float BackgroundAlpha => DeskHitTest.LastBackgroundAlpha;
+
+        /// <summary>
+        /// 빈 자리 알파 진단을 켤지 여부. 기본은 꺼져 있다.
+        /// 켜면 매 프레임 화면을 한 번 더 읽어 프레임이 깎이므로, 투명이 안 나오는 원인을 가릴 때만 켠다.
+        /// 클릭 통과 판정은 이 값과 무관하게 항상 돈다.
+        /// 보통은 <see cref="Initialize(DESK_WINDOW_PROFILE, bool)"/> 의 인자로 정하고,
+        /// 이 멤버는 실행 중에 껐다 켜야 할 때만 쓴다. 초기화가 다시 불리면 선언한 값으로 덮인다.
+        /// </summary>
+        public static bool EnableBackgroundAlphaProbe {
+            get => DeskHitTest.IsBackgroundAlphaProbeEnabled;
+            set => DeskHitTest.IsBackgroundAlphaProbeEnabled = value;
+        }
 
         /// <summary> 마지막 투명 처리 시도의 결과. 투명이 안 나올 때 원인을 보기 위한 값이다 </summary>
         public static string TransparentReport => DeskPlatform.LastTransparentReport;
