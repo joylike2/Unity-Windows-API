@@ -1,4 +1,4 @@
-﻿#if UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR)
+#if UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR)
 
 using System;
 using System.Collections.Generic;
@@ -405,13 +405,37 @@ namespace LifeLogs.WindowUtil {
             style = isResizable ? style | resizeBits : style & ~resizeBits;
             NativeRect rect = new NativeRect { left = 0, top = 0, right = 100, bottom = 100 };
 
-            if (!NativeMethods.AdjustWindowRectEx(ref rect, (uint)style, false, (uint)exStyle)) {
+            if (!TryAdjustWindowRect(hWnd, ref rect, style, exStyle)) {
                 return false;
             }
 
             width = rect.right - rect.left - 100;
             height = rect.bottom - rect.top - 100;
             return true;
+        }
+
+        private static bool _isAdjustDpiWarned;
+
+        /// <summary>
+        /// 테두리 두께를 창이 놓인 모니터의 배율로 구한다.
+        /// 배율을 모르는 옛 API 는 96 DPI 기준으로만 답해, 150% 모니터에서 제목 표시줄을 15px 가량 얕게 본다.
+        /// 배율 대응 API 는 Windows 10 1607 부터라 없으면 옛 API 로 물러난다.
+        /// </summary>
+        private static bool TryAdjustWindowRect(IntPtr hWnd, ref NativeRect rect, int style, int exStyle) {
+            uint dpi = GetMonitorDpi(GetMonitorFromWindow(hWnd));
+
+            try {
+                return NativeMethods.AdjustWindowRectExForDpi(ref rect, (uint)style, false, (uint)exStyle, dpi);
+            }
+            catch (Exception e) when (e is DllNotFoundException || e is EntryPointNotFoundException) {
+                if (!_isAdjustDpiWarned) {
+                    _isAdjustDpiWarned = true;
+                    Debug.LogWarning("[DeskPlatform.Windows] 배율 대응 창 크기 계산 API 를 쓸 수 없어 96 DPI 기준으로 "
+                                     + $"물러납니다. 고배율 모니터에서 창이 조금 넘칠 수 있습니다: {e.Message}");
+                }
+
+                return NativeMethods.AdjustWindowRectEx(ref rect, (uint)style, false, (uint)exStyle);
+            }
         }
 
         #endregion 창 위치와 크기
@@ -762,6 +786,12 @@ namespace LifeLogs.WindowUtil {
             [DllImport("user32.dll")]
             public static extern bool AdjustWindowRectEx(ref NativeRect lpRect, uint dwStyle,
                                                          [MarshalAs(UnmanagedType.Bool)] bool bMenu, uint dwExStyle);
+
+            // Windows 10 1607 부터 제공한다. 그 전 버전에서는 EntryPointNotFoundException 이 난다.
+            [DllImport("user32.dll")]
+            public static extern bool AdjustWindowRectExForDpi(ref NativeRect lpRect, uint dwStyle,
+                                                               [MarshalAs(UnmanagedType.Bool)] bool bMenu,
+                                                               uint dwExStyle, uint dpi);
 
             [DllImport("user32.dll")]
             public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
