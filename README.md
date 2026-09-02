@@ -394,9 +394,30 @@ WindowDeskAPI.Initialize(DESK_WINDOW_PROFILE.DESKTOP_GAME);
 bool transparent = WindowDeskAPI.IsTransparent;
 bool clickThrough = WindowDeskAPI.IsClickThrough;
 bool passingNow = WindowDeskAPI.IsPassingThroughNow;   // 지금 커서 아래가 빈 곳인지
-float alpha = WindowDeskAPI.BackgroundAlpha;           // 커서 아래 픽셀 알파
 string report = WindowDeskAPI.TransparentReport;       // 투명이 안 나올 때 원인
+float alpha = WindowDeskAPI.BackgroundAlpha;           // 화면 왼쪽 아래 빈 자리의 알파
 ```
+
+### 빈 자리 알파 진단은 선언할 때 켭니다
+　
+`BackgroundAlpha` 는 매 프레임 화면을 한 번 더 읽어 채우는 **진단값**이라 프레임을 깎습니다.
+그래서 **기본은 꺼져 있고**, 꺼진 동안에는 음수(`-1`)가 나옵니다. 투명이 안 나올 때만 선언부에서 켜십시오.
+
+```csharp
+// 평소 — 진단은 꺼진 채로 돕니다
+WindowDeskAPI.Initialize(DESK_WINDOW_PROFILE.DESKTOP_GAME);
+
+// 투명이 안 나올 때 — 마지막 인자로 켭니다
+WindowDeskAPI.Initialize(DESK_WINDOW_PROFILE.DESKTOP_GAME, enableBackgroundAlphaProbe: true);
+
+// 기능을 더해 선언할 때도 마지막에 붙입니다
+WindowDeskAPI.Initialize(DESK_WINDOW_PROFILE.DESKTOP_GAME, DESK_WINDOW_FEATURE.TASKBAR_BUTTON, true);
+```
+
+실행 중에 껐다 켜야 하면 `WindowDeskAPI.EnableBackgroundAlphaProbe` 로도 바꿀 수 있습니다.
+다만 초기화를 다시 부르면 선언한 값으로 덮이고, 끄면 값이 `-1` 로 되돌아갑니다.
+
+> **클릭 통과 판정은 이 설정과 무관하게 항상 돕니다.** 진단만 켜고 끌 뿐, 판정은 손대지 않습니다.
 
 초기화만 하면 **테두리없는 창 → 모니터 전체 덮기 → 투명 → 클릭 통과**가 순서대로 걸립니다.
 
@@ -603,7 +624,7 @@ float scale = WindowDeskAPI.CurrentDpiScale;
 | 창 상태 | `SetTopMost()` / `IsTopMostRequested` / `IsTopMostApplied()` / `SetResizable()` / `IsResizableRequested` / `SetBorderless()` / `IsBorderless` / `SetTaskbarButtonVisible()` / `SetCursorConfined()` / `GetWindowRect()` |
 | 프레임 | `SetTargetFrameRate()` / `TargetFrameRate` / `SetPowerSaving()` / `SetVSync()` / `IsVSyncEnabled` / `HasFocus` / `UNLIMITED_FRAME_RATE` |
 | 설정 | `SaveSettings()` / `HasSavedSettings` / `DeleteSettings()` / `SettingsFilePath` / `ExportSettings()` / `ImportSettings()` |
-| 바탕화면 | `IsTransparent` / `IsClickThrough` / `IsPassingThroughNow` / `BackgroundAlpha` / `TransparentReport` |
+| 바탕화면 | `IsTransparent` / `IsClickThrough` / `IsPassingThroughNow` / `EnableBackgroundAlphaProbe` / `BackgroundAlpha` / `TransparentReport` |
 | 트레이 | `EnableTray()` / `DisableTray()` / `SetTrayIcon()` / `SetTrayTooltip()` / `AddTrayMenuItem()` / `AddTrayMenuSeparator()` / `ClearTrayMenu()` / `SetTrayMenuTheme()` / `FocusGameWindow()` / `IsTraySupported` |
 | DPI | `CurrentDpiScale` / `ApplyDpiScaleToAllCanvases()` |
 | 후킹 | `AddInitializeListener()` / `AddDisplayListener()` / 및 각 `Remove...()` |
