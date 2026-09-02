@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace LifeLogs.WindowUtil.Samples {
@@ -87,7 +87,10 @@ namespace LifeLogs.WindowUtil.Samples {
         public void InitializeDesktopGame() {
             DemoLog.Section("바탕화면 게임 초기화");
 
-            bool result = WindowDeskAPI.Initialize(DESK_WINDOW_PROFILE.DESKTOP_GAME);
+            // 데모는 [상태 보기] 로 빈 자리 알파를 확인하는 것이 목적이므로 진단을 켜고 초기화한다.
+            // 실제 게임에서는 기본값(false)으로 두십시오. 매 프레임 화면을 한 번 더 읽습니다.
+            bool result = WindowDeskAPI.Initialize(DESK_WINDOW_PROFILE.DESKTOP_GAME,
+                                                   enableBackgroundAlphaProbe: true);
 
             DemoLog.Result($"프로파일 {WindowDeskAPI.ActiveProfiles} / 초기화 {result}", WindowDeskAPI.IsInitialized);
             DemoLog.Info($"기능 {WindowDeskAPI.EnabledFeatures}");
