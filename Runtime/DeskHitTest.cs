@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using UnityEngine;
 
@@ -16,6 +16,7 @@ namespace LifeLogs.WindowUtil {
         private const float OPAQUE_ALPHA = 0.1f;
 
         private static DeskHitTest _instance;
+        private static bool _isProbeEnabled;
 
         private Texture2D _sample;
         private Coroutine _routine;
@@ -25,6 +26,27 @@ namespace LifeLogs.WindowUtil {
 
         /// <summary> 화면 왼쪽 아래 빈 자리에서 마지막으로 읽은 알파. 음수면 아직 읽은 적이 없다 </summary>
         internal static float LastBackgroundAlpha { get; private set; } = -1f;
+
+        /// <summary>
+        /// 빈 자리 알파 진단을 돌릴지 여부. 기본은 꺼져 있다.
+        /// 클릭 통과 판정과 무관한 진단 전용인데 켜 두면 매 프레임 ReadPixels 가 한 번 더 돌아
+        /// GPU 동기화 비용이 두 배가 되므로, 투명이 안 나오는 원인을 볼 때만 켠다.
+        /// </summary>
+        internal static bool IsBackgroundAlphaProbeEnabled {
+            get => _isProbeEnabled;
+            set {
+                if (_isProbeEnabled == value) {
+                    return;
+                }
+
+                _isProbeEnabled = value;
+
+                // 끈 뒤에도 마지막 값이 남아 있으면 지금 읽은 값으로 오인한다.
+                if (!value) {
+                    LastBackgroundAlpha = -1f;
+                }
+            }
+        }
 
         /// <summary> 판정기가 없으면 만든다. 씬 전환에도 살아남는다. </summary>
         internal static void Enable() {
@@ -77,7 +99,10 @@ namespace LifeLogs.WindowUtil {
                 yield return endOfFrame;
 
                 try {
-                    SampleBackgroundAlpha();
+                    if (_isProbeEnabled) {
+                        SampleBackgroundAlpha();
+                    }
+
                     WindowDeskAPI.SetPassThrough(!IsCursorOnDrawnPixel());
                 }
                 catch (Exception e) {
@@ -89,6 +114,7 @@ namespace LifeLogs.WindowUtil {
         /// <summary>
         /// 화면 왼쪽 아래 구석의 알파를 남긴다.
         /// 투명이 안 나올 때 유니티가 알파를 1로 밀고 있는지 창 쪽 문제인지 가르기 위한 값이다.
+        /// 판정에는 쓰이지 않으므로 <see cref="IsBackgroundAlphaProbeEnabled"/> 가 켜졌을 때만 부른다.
         /// </summary>
         private void SampleBackgroundAlpha() {
             EnsureSampleTexture();
