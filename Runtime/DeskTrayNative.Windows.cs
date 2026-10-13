@@ -140,10 +140,15 @@ namespace LifeLogs.WindowUtil {
             };
 
             if (message != NativeMethods.NIM_DELETE) {
-                data.uFlags = NativeMethods.NIF_ICON | NativeMethods.NIF_MESSAGE | NativeMethods.NIF_TIP;
+                data.uFlags = NativeMethods.NIF_ICON | NativeMethods.NIF_MESSAGE;
                 data.uCallbackMessage = NativeMethods.WM_TRAY_CALLBACK;
                 data.hIcon = _iconHandle;
-                data.szTip = Shorten(tooltip);
+
+                // 툴팁이 null 이면(그림만 바꿀 때) 툴팁 칸을 보내지 않는다. 빈 글로 보내면 떠 있던 툴팁이 지워진다.
+                if (tooltip != null) {
+                    data.uFlags |= NativeMethods.NIF_TIP;
+                    data.szTip = Shorten(tooltip);
+                }
             }
 
             return NativeMethods.Shell_NotifyIcon(message, ref data);
