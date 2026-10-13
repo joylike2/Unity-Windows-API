@@ -261,6 +261,15 @@ namespace LifeLogs.WindowUtil {
             return (GetStyle(hWnd, NativeMethods.GWL_EXSTYLE) & NativeMethods.WS_EX_TOOLWINDOW) == 0;
         }
 
+        /// <summary> 창을 숨긴다. 앱이 꺼질 때 원래 창 모양으로 되돌리는 동안 화면에 보이지 않게 한다. </summary>
+        internal static void HideWindow(IntPtr hWnd) {
+            if (hWnd == IntPtr.Zero) {
+                return;
+            }
+
+            NativeMethods.ShowWindow(hWnd, NativeMethods.SW_HIDE);
+        }
+
         internal static void SetTaskbarButtonVisible(IntPtr hWnd, bool visible) {
             int exStyle = GetStyle(hWnd, NativeMethods.GWL_EXSTYLE);
 
@@ -296,7 +305,12 @@ namespace LifeLogs.WindowUtil {
                 return false;
             }
 
-            SetStyle(hWnd, NativeMethods.GWL_STYLE, snapshot.Style);
+            // 스냅샷에는 보이던 때의 WS_VISIBLE 이 들어 있다. 숨긴 창에 그대로 쓰면 다시 그려지므로 지금 보이는지를 따른다.
+            int style = NativeMethods.IsWindowVisible(hWnd)
+                ? snapshot.Style | NativeMethods.WS_VISIBLE
+                : snapshot.Style & ~NativeMethods.WS_VISIBLE;
+
+            SetStyle(hWnd, NativeMethods.GWL_STYLE, style);
             SetStyle(hWnd, NativeMethods.GWL_EXSTYLE, snapshot.ExtendedStyle);
             ApplyFrameChange(hWnd);
 
@@ -709,6 +723,7 @@ namespace LifeLogs.WindowUtil {
             public const int GWL_STYLE = -16;
             public const int GWL_EXSTYLE = -20;
 
+            public const int WS_VISIBLE = 0x10000000;
             public const int WS_CAPTION = 0x00C00000;
             public const int WS_THICKFRAME = 0x00040000;
             public const int WS_MAXIMIZEBOX = 0x00010000;

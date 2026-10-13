@@ -598,7 +598,20 @@ namespace LifeLogs.WindowUtil {
             }
 
             _isQuitHooked = true;
-            Application.quitting += Shutdown;
+            Application.quitting += OnApplicationQuitting;
+        }
+
+        /// <summary>
+        /// 앱이 꺼질 때 창부터 숨긴 뒤 정리한다.
+        /// 투명·클릭 통과를 풀고 원래 창 모양으로 되돌리는 동안 불투명한 창이 잠깐 보이는 것을 막는다.
+        /// 게임 도중 직접 부르는 <see cref="Shutdown"/> 은 창을 숨기지 않는다.
+        /// </summary>
+        private static void OnApplicationQuitting() {
+            if (IsWindowControlEnabled && WindowHandle != IntPtr.Zero) {
+                DeskPlatform.HideWindow(WindowHandle);
+            }
+
+            Shutdown();
         }
 
         /// <summary>
