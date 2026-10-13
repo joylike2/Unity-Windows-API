@@ -780,12 +780,6 @@ namespace LifeLogs.WindowUtil {
             // 선언은 라이브러리가 커서를 가두지 못하게 막을 뿐이고, 게임이 이미 잠가 둔 것은 여기서 푼다.
             ReleaseDesktopCursor();
 
-            // 모니터 전체를 덮는 창이 앞 창이 되면 셸이 작업표시줄을 창 아래로 내려, 최상위가 꺼져 있어도 작업표시줄 자리의 UI 가 위로 보인다.
-            // 셸은 창이 화면을 덮도록 크기가 바뀔 때 이 속성을 읽으므로, 표시 방식을 바꿔 창이 모니터 크기가 되기 전에 건다.
-            if (IsWindowControlEnabled && WindowHandle != IntPtr.Zero) {
-                DeskPlatform.SetNonRude(WindowHandle, true);
-            }
-
             DisplayMode.Apply(DESK_DISPLAY_MODE.BORDERLESS_WINDOWED);
             DeskEventPump.RunNextFrame(ApplyDesktopWindowStyle);
         }
@@ -879,11 +873,6 @@ namespace LifeLogs.WindowUtil {
 
                 if (_isTransparentRequested) {
                     DeskPlatform.SetTransparent(WindowHandle, false);
-                }
-
-                // 바탕화면 게임일 때만 걸었으므로 떼는 것도 그때만 한다. PC 게임은 셸의 원래 전체 화면 판정을 그대로 쓴다.
-                if (IsDesktopGame) {
-                    DeskPlatform.SetNonRude(WindowHandle, false);
                 }
             }
 

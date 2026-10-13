@@ -240,29 +240,6 @@ namespace LifeLogs.WindowUtil {
         }
 
         /// <summary>
-        /// 셸이 이 창을 전체 화면 앱으로 보지 않게 한다 (NonRudeHWND 창 속성, Windows 7 부터).
-        /// 모니터 전체를 덮는 창이 앞 창이 되면 셸이 그 모니터의 작업표시줄을 창 아래로 내린다.
-        /// 셸은 창이 보일 때와 화면을 덮도록 크기가 바뀔 때만 이 값을 읽으므로, 창을 모니터 크기로 맞추기 전에 걸어야 한다.
-        /// 실패하면 경고만 남기고 넘어간다. 창 동작에는 지장이 없고 작업표시줄이 내려가는 것만 막지 못한다.
-        /// </summary>
-        /// <param name="nonRude">true 면 전체 화면 판정에서 빼고, false 면 셸의 원래 판정으로 돌린다.</param>
-        internal static void SetNonRude(IntPtr hWnd, bool nonRude) {
-            if (hWnd == IntPtr.Zero) {
-                return;
-            }
-
-            if (!nonRude) {
-                NativeMethods.RemoveProp(hWnd, NativeMethods.NON_RUDE_PROPERTY);
-                return;
-            }
-
-            if (!NativeMethods.SetProp(hWnd, NativeMethods.NON_RUDE_PROPERTY, new IntPtr(1))) {
-                Debug.LogWarning($"[DeskPlatform] {NativeMethods.NON_RUDE_PROPERTY} 속성을 걸지 못했습니다. "
-                                 + $"(오류 {Marshal.GetLastWin32Error()}) 작업표시줄이 게임 창 아래로 내려갈 수 있습니다.");
-            }
-        }
-
-        /// <summary>
         /// 스타일 적용을 위해 창을 잠깐 숨겼다가 다시 표시합니다.
         /// 이 과정에서 최상위 상태가 풀릴 수 있으므로 TopMost 보다 먼저 호출해야 합니다.
         /// </summary>
@@ -770,9 +747,6 @@ namespace LifeLogs.WindowUtil {
             public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
             public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
 
-            /// <summary> 셸이 전체 화면 판정에서 빼는 창 속성 이름. 값이 0 이 아니면 전체 화면 창이 아니라는 뜻이다. </summary>
-            public const string NON_RUDE_PROPERTY = "NonRudeHWND";
-
             /// <summary>
             /// 32비트 빌드에는 SetWindowLongPtr 이 없으므로 포인터 크기에 따라 분기합니다.
             /// </summary>
@@ -842,13 +816,6 @@ namespace LifeLogs.WindowUtil {
 
             [DllImport("user32.dll")]
             public static extern bool SetForegroundWindow(IntPtr hWnd);
-
-            // 실패 사유를 경고에 남겨야 하므로 마지막 오류 코드를 보존합니다.
-            [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SetPropW", SetLastError = true)]
-            public static extern bool SetProp(IntPtr hWnd, string lpString, IntPtr hData);
-
-            [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "RemovePropW")]
-            public static extern IntPtr RemoveProp(IntPtr hWnd, string lpString);
 
             [DllImport("kernel32.dll")]
             public static extern uint GetCurrentThreadId();

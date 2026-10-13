@@ -1,4 +1,4 @@
-#if !(UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR) || UNITY_EDITOR_OSX || (UNITY_STANDALONE_OSX && !UNITY_EDITOR))
+﻿#if !(UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR) || UNITY_EDITOR_OSX || (UNITY_STANDALONE_OSX && !UNITY_EDITOR))
 
 using System;
 using System.Collections.Generic;
@@ -83,11 +83,6 @@ namespace LifeLogs.WindowUtil {
         }
 
         internal static void SetTopMost(IntPtr hWnd, bool topMost) {
-            WarnOnce();
-        }
-
-        /// <summary> 셸이 이 창을 전체 화면 앱으로 보지 않게 한다. 작업표시줄 개념이 없는 플랫폼이라 아무것도 하지 않는다. </summary>
-        internal static void SetNonRude(IntPtr hWnd, bool nonRude) {
             WarnOnce();
         }
 
