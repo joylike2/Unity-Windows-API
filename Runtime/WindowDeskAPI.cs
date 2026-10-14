@@ -636,6 +636,7 @@ namespace LifeLogs.WindowUtil {
             _baseResolution = default;
             _skipMonitorAutoSave = false;
             _hasAppliedDesktopStyle = false;
+            _didRestoreBorderLastRefresh = false;
             ApplyCursorConfine();
 
             DeskDisplayWatcher.Disable();
@@ -650,27 +651,35 @@ namespace LifeLogs.WindowUtil {
         #region 시작 숨김
 
         /// <summary>
-        /// 창 모양을 갖춘 뒤 다시 보이기까지 기다리는 프레임 수.
-        /// 유니티가 표시 방식을 바꾸며 되살린 테두리를 매 프레임 보정이 걷어낸 화면이 한 번 그려진 뒤에 보이게 한다.
+        /// 창 모양을 갖춘 뒤, 유니티가 테두리를 되살리지 않은 프레임이 이만큼 이어지면 보인다.
+        /// 유니티는 표시 방식을 적용하며 테두리를 되살리는데 그 시점이 정해져 있지 않아, 한 번 지웠다고 끝난 것이 아니다.
         /// </summary>
-        private const int REVEAL_DELAY_FRAMES = 2;
+        private const int REVEAL_BORDERLESS_FRAMES = 5;
+
+        /// <summary> 테두리가 계속 되살아나도 이만큼 기다린 뒤에는 보인다. 창이 숨은 채로 남지 않게 하는 상한이다. </summary>
+        private const int REVEAL_MAX_WAIT_FRAMES = 120;
 
         private static bool _isHiddenUntilReady;
+        private static bool _isCloakedStart;
         private static bool _hasRevealedHiddenStart;
         private static bool _hasAppliedDesktopStyle;
+        private static bool _didRestoreBorderLastRefresh;
         private static int _revealWaitFrames;
+        private static int _borderlessFrames;
 
-        // 숨긴 창은 핸들 탐색에 걸리지 않으므로 숨긴 핸들을 따로 쥐고 있다가 그대로 다시 띄운다.
+        // SW_HIDE 로 숨긴 창은 핸들 탐색에 걸리지 않으므로 숨긴 핸들을 따로 쥐고 있다가 그대로 다시 띄운다.
         private static IntPtr _hiddenHandle = IntPtr.Zero;
 
         /// <summary>
-        /// 켤 때 창을 숨겨 두고, 초기화가 창 모양을 다 갖춘 뒤 다시 보이게 합니다.
+        /// 켤 때 창을 가려 두고, 초기화가 창 모양을 다 갖춘 뒤 다시 보이게 합니다.
         /// 유니티는 스크립트보다 먼저 평범한 창을 띄우고, 바탕화면 게임의 투명 · 테두리 제거는 첫 프레임에야 걸리므로 그사이 불투명한 창이 보입니다.
+        /// 창은 DWM 으로 가립니다. 창은 보이는 상태 그대로라 유니티가 표시 방식 적용 · 포커스를 평소대로 하고, 다시 드러낼 때 창이 새로 뜨지 않습니다.
+        /// DWM 으로 가릴 수 없으면 창을 숨깁니다.
         /// 가장 이른 시점(<see cref="RuntimeInitializeLoadType.BeforeSplashScreen"/>)에 부르고, 창을 아직 못 찾아 false 면 뒤에서 한 번 더 부르십시오.
-        /// 초기화를 하지 않았거나 바탕화면 게임이 아니면 첫 프레임 뒤에 바로 보이게 하므로 창이 숨은 채로 남지 않습니다.
+        /// 초기화를 하지 않았거나 바탕화면 게임이 아니면 첫 프레임들 뒤에 바로 보이므로 창이 숨은 채로 남지 않습니다.
         /// 다시 보인 뒤에 부르면 아무것도 하지 않습니다.
         /// </summary>
-        /// <returns>창을 숨긴 채 기다리는 중이면 true.</returns>
+        /// <returns>창을 가리거나 숨긴 채 기다리는 중이면 true.</returns>
         public static bool HideUntilReady() {
             if (_isHiddenUntilReady) {
                 return true;
@@ -680,45 +689,58 @@ namespace LifeLogs.WindowUtil {
                 return false;
             }
 
-            // 숨긴 창은 포커스를 잃는다. 배경 실행이 꺼져 있으면 유니티가 멈춰 다시 보이게 할 프레임이 오지 않는다.
-            if (!Application.runInBackground) {
-                Debug.LogWarning("[WindowDeskAPI] Run In Background 가 꺼져 있어 켤 때 창을 숨기지 않습니다. "
-                                 + "숨긴 창은 포커스를 잃어 유니티가 멈추기 때문입니다.");
-                return false;
-            }
-
             IntPtr handle = WindowHandle;
 
             if (handle == IntPtr.Zero) {
                 return false;
             }
 
-            DeskPlatform.HideWindow(handle);
+            _isCloakedStart = DeskPlatform.SetCloaked(handle, true);
+
+            if (!_isCloakedStart) {
+                // 숨긴 창은 포커스를 잃는다. 배경 실행이 꺼져 있으면 유니티가 멈춰 다시 보이게 할 프레임이 오지 않는다.
+                if (!Application.runInBackground) {
+                    Debug.LogWarning("[WindowDeskAPI] 창을 가릴 수 없고 Run In Background 가 꺼져 있어 켤 때 창을 숨기지 않습니다. "
+                                     + "숨긴 창은 포커스를 잃어 유니티가 멈추기 때문입니다.");
+                    return false;
+                }
+
+                DeskPlatform.HideWindow(handle);
+            }
+
             _hiddenHandle = handle;
             _isHiddenUntilReady = true;
             return true;
         }
 
-        /// <summary> 시작 숨김을 풀 때가 됐는지 본다. 매 프레임 펌프가 부른다. </summary>
+        /// <summary> 시작 숨김을 풀 때가 됐는지 본다. 테두리 보정(RefreshDesktopWindow) 뒤에 매 프레임 펌프가 부른다. </summary>
         internal static void RefreshHiddenStart() {
             if (!_isHiddenUntilReady) {
                 return;
             }
 
-            if (IsReadyToReveal()) {
-                _revealWaitFrames++;
-            }
+            KeepHiddenUntilReady();
 
-            // 준비된 프레임을 세고, 그 화면이 REVEAL_DELAY_FRAMES 번 그려진 다음 프레임에 보인다.
-            if (_revealWaitFrames <= REVEAL_DELAY_FRAMES) {
-                KeepHiddenUntilReady();
+            if (!IsReadyToReveal()) {
                 return;
             }
 
-            _isHiddenUntilReady = false;
-            _hasRevealedHiddenStart = true;
-            DeskPlatform.ShowWindow(_hiddenHandle);
-            _hiddenHandle = IntPtr.Zero;
+            _revealWaitFrames++;
+
+            // 이번 프레임에 유니티가 되살린 테두리를 다시 지웠으면 처음부터 센다.
+            _borderlessFrames = _didRestoreBorderLastRefresh ? 0 : _borderlessFrames + 1;
+
+            bool isSettled = _borderlessFrames >= REVEAL_BORDERLESS_FRAMES;
+
+            if (!isSettled && _revealWaitFrames < REVEAL_MAX_WAIT_FRAMES) {
+                return;
+            }
+
+            if (!isSettled) {
+                Debug.LogWarning($"[WindowDeskAPI] {REVEAL_MAX_WAIT_FRAMES} 프레임 동안 테두리가 계속 되살아나 기다리지 않고 창을 보입니다.");
+            }
+
+            RevealHiddenStart();
         }
 
         /// <summary> 초기화하지 않았거나 바탕화면 게임이 아니면 기다릴 창 모양이 없다. </summary>
@@ -726,11 +748,34 @@ namespace LifeLogs.WindowUtil {
             return !IsInitialized || !IsDesktopGame || _hasAppliedDesktopStyle;
         }
 
-        /// <summary> 유니티가 표시 방식을 바꾸며 창을 다시 띄웠으면 도로 숨긴다. </summary>
+        /// <summary> 숨긴 창을 유니티가 다시 띄웠으면 도로 숨긴다. 가린 창은 다시 띄워도 화면에 나오지 않는다. </summary>
         private static void KeepHiddenUntilReady() {
+            if (_isCloakedStart) {
+                return;
+            }
+
             if (DeskPlatform.IsWindowVisible(_hiddenHandle)) {
                 DeskPlatform.HideWindow(_hiddenHandle);
             }
+        }
+
+        private static void RevealHiddenStart() {
+            _isHiddenUntilReady = false;
+            _hasRevealedHiddenStart = true;
+
+            if (_isCloakedStart) {
+                if (!DeskPlatform.SetCloaked(_hiddenHandle, false)) {
+                    Debug.LogError("[WindowDeskAPI] 켤 때 가린 창을 다시 드러내지 못했습니다.");
+                }
+            }
+            else {
+                DeskPlatform.ShowWindow(_hiddenHandle);
+            }
+
+            _hiddenHandle = IntPtr.Zero;
+
+            // 창이 새로 뜰 때 유니티가 스타일을 다시 쓰면 다음 프레임을 기다리지 않고 바로 지운다.
+            RefreshDesktopWindow();
         }
 
         #endregion 시작 숨김
@@ -950,10 +995,13 @@ namespace LifeLogs.WindowUtil {
             }
 
             if (!IsFeatureEnabled(DESK_WINDOW_FEATURE.BORDERLESS) || DeskPlatform.IsBorderless(WindowHandle)) {
+                _didRestoreBorderLastRefresh = false;
                 FitWindowToDesktop(Monitors.CurrentIndex);
                 return;
             }
 
+            // 시작 숨김은 이 값으로 유니티가 테두리를 되살리기를 멈췄는지 본다.
+            _didRestoreBorderLastRefresh = true;
             DeskPlatform.SetBorderless(WindowHandle, true);
             FitWindowToDesktop(Monitors.CurrentIndex);
 

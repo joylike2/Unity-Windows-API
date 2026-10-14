@@ -288,6 +288,26 @@ namespace LifeLogs.WindowUtil {
             return NativeMethods.IsWindowVisible(hWnd);
         }
 
+        /// <summary>
+        /// DWM 으로 창을 가리거나 다시 드러낸다.
+        /// 창은 보이는 상태 그대로라 유니티는 그리기 · 포커스 · 표시 방식 적용을 평소대로 하고, 화면에만 나오지 않는다.
+        /// </summary>
+        /// <returns>DWM 이 받아들였으면 true.</returns>
+        internal static bool SetCloaked(IntPtr hWnd, bool cloaked) {
+            if (hWnd == IntPtr.Zero) {
+                return false;
+            }
+
+            try {
+                int value = cloaked ? 1 : 0;
+                return NativeMethods.DwmSetWindowAttribute(hWnd, NativeMethods.DWMWA_CLOAK, ref value, sizeof(int)) == 0;
+            }
+            catch (Exception e) when (e is DllNotFoundException || e is EntryPointNotFoundException) {
+                Debug.LogWarning($"[DeskPlatform.Windows] DWM 을 사용할 수 없어 창을 가리지 못했습니다: {e.Message}");
+                return false;
+            }
+        }
+
         internal static void SetTaskbarButtonVisible(IntPtr hWnd, bool visible) {
             int exStyle = GetStyle(hWnd, NativeMethods.GWL_EXSTYLE);
 
@@ -767,6 +787,8 @@ namespace LifeLogs.WindowUtil {
             public const int SW_SHOW = 5;
             public const int SW_RESTORE = 9;
 
+            public const int DWMWA_CLOAK = 13;
+
             public const uint GW_OWNER = 4;
 
             public const uint MONITOR_DEFAULTTONEAREST = 2;
@@ -880,6 +902,9 @@ namespace LifeLogs.WindowUtil {
 
             [DllImport("dwmapi.dll")]
             public static extern int DwmEnableBlurBehindWindow(IntPtr hWnd, ref NativeBlurBehind pBlurBehind);
+
+            [DllImport("dwmapi.dll")]
+            public static extern int DwmSetWindowAttribute(IntPtr hWnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
             [DllImport("gdi32.dll")]
             public static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);

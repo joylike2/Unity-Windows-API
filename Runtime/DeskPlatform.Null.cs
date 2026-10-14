@@ -115,6 +115,12 @@ namespace LifeLogs.WindowUtil {
             return true;
         }
 
+        /// <summary> 창을 가리거나 다시 드러낸다. 창 제어를 제공하지 않는 플랫폼이라 아무것도 하지 않는다. </summary>
+        internal static bool SetCloaked(IntPtr hWnd, bool cloaked) {
+            WarnOnce();
+            return false;
+        }
+
         /// <summary> 창의 원본 스타일과 영역을 읽어 스냅샷으로 만든다. </summary>
         internal static bool TryCaptureWindowStyle(IntPtr hWnd, out DeskWindowStyleSnapshot snapshot) {
             snapshot = default;
