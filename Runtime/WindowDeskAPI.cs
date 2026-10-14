@@ -635,6 +635,7 @@ namespace LifeLogs.WindowUtil {
             _hasBaseResolution = false;
             _baseResolution = default;
             _skipMonitorAutoSave = false;
+            _hasAppliedDesktopStyle = false;
             ApplyCursorConfine();
 
             DeskDisplayWatcher.Disable();
@@ -645,6 +646,94 @@ namespace LifeLogs.WindowUtil {
             DeskMonitorCache.Invalidate();
             InvalidateWindowHandle();
         }
+
+        #region 시작 숨김
+
+        /// <summary>
+        /// 창 모양을 갖춘 뒤 다시 보이기까지 기다리는 프레임 수.
+        /// 유니티가 표시 방식을 바꾸며 되살린 테두리를 매 프레임 보정이 걷어낸 화면이 한 번 그려진 뒤에 보이게 한다.
+        /// </summary>
+        private const int REVEAL_DELAY_FRAMES = 2;
+
+        private static bool _isHiddenUntilReady;
+        private static bool _hasRevealedHiddenStart;
+        private static bool _hasAppliedDesktopStyle;
+        private static int _revealWaitFrames;
+
+        // 숨긴 창은 핸들 탐색에 걸리지 않으므로 숨긴 핸들을 따로 쥐고 있다가 그대로 다시 띄운다.
+        private static IntPtr _hiddenHandle = IntPtr.Zero;
+
+        /// <summary>
+        /// 켤 때 창을 숨겨 두고, 초기화가 창 모양을 다 갖춘 뒤 다시 보이게 합니다.
+        /// 유니티는 스크립트보다 먼저 평범한 창을 띄우고, 바탕화면 게임의 투명 · 테두리 제거는 첫 프레임에야 걸리므로 그사이 불투명한 창이 보입니다.
+        /// 가장 이른 시점(<see cref="RuntimeInitializeLoadType.BeforeSplashScreen"/>)에 부르고, 창을 아직 못 찾아 false 면 뒤에서 한 번 더 부르십시오.
+        /// 초기화를 하지 않았거나 바탕화면 게임이 아니면 첫 프레임 뒤에 바로 보이게 하므로 창이 숨은 채로 남지 않습니다.
+        /// 다시 보인 뒤에 부르면 아무것도 하지 않습니다.
+        /// </summary>
+        /// <returns>창을 숨긴 채 기다리는 중이면 true.</returns>
+        public static bool HideUntilReady() {
+            if (_isHiddenUntilReady) {
+                return true;
+            }
+
+            if (_hasRevealedHiddenStart || !IsWindowControlEnabled) {
+                return false;
+            }
+
+            // 숨긴 창은 포커스를 잃는다. 배경 실행이 꺼져 있으면 유니티가 멈춰 다시 보이게 할 프레임이 오지 않는다.
+            if (!Application.runInBackground) {
+                Debug.LogWarning("[WindowDeskAPI] Run In Background 가 꺼져 있어 켤 때 창을 숨기지 않습니다. "
+                                 + "숨긴 창은 포커스를 잃어 유니티가 멈추기 때문입니다.");
+                return false;
+            }
+
+            IntPtr handle = WindowHandle;
+
+            if (handle == IntPtr.Zero) {
+                return false;
+            }
+
+            DeskPlatform.HideWindow(handle);
+            _hiddenHandle = handle;
+            _isHiddenUntilReady = true;
+            return true;
+        }
+
+        /// <summary> 시작 숨김을 풀 때가 됐는지 본다. 매 프레임 펌프가 부른다. </summary>
+        internal static void RefreshHiddenStart() {
+            if (!_isHiddenUntilReady) {
+                return;
+            }
+
+            if (IsReadyToReveal()) {
+                _revealWaitFrames++;
+            }
+
+            // 준비된 프레임을 세고, 그 화면이 REVEAL_DELAY_FRAMES 번 그려진 다음 프레임에 보인다.
+            if (_revealWaitFrames <= REVEAL_DELAY_FRAMES) {
+                KeepHiddenUntilReady();
+                return;
+            }
+
+            _isHiddenUntilReady = false;
+            _hasRevealedHiddenStart = true;
+            DeskPlatform.ShowWindow(_hiddenHandle);
+            _hiddenHandle = IntPtr.Zero;
+        }
+
+        /// <summary> 초기화하지 않았거나 바탕화면 게임이 아니면 기다릴 창 모양이 없다. </summary>
+        private static bool IsReadyToReveal() {
+            return !IsInitialized || !IsDesktopGame || _hasAppliedDesktopStyle;
+        }
+
+        /// <summary> 유니티가 표시 방식을 바꾸며 창을 다시 띄웠으면 도로 숨긴다. </summary>
+        private static void KeepHiddenUntilReady() {
+            if (DeskPlatform.IsWindowVisible(_hiddenHandle)) {
+                DeskPlatform.HideWindow(_hiddenHandle);
+            }
+        }
+
+        #endregion 시작 숨김
 
         /// <summary> 모니터 정보를 쓰는 경우에만 구성 변경 감시를 켠다. </summary>
         private static void StartDisplayWatch() {
@@ -802,6 +891,9 @@ namespace LifeLogs.WindowUtil {
         /// 창 모양을 먼저 확정해야 DWM 유리 확장이 그 위에 얹힌 채로 남는다.
         /// </summary>
         private static void ApplyDesktopWindowStyle() {
+            // 걸지 못하고 돌아가도 시작 숨김이 더 기다릴 창 모양은 없다.
+            _hasAppliedDesktopStyle = true;
+
             if (!IsWindowControlEnabled || WindowHandle == IntPtr.Zero) {
                 return;
             }

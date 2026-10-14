@@ -261,13 +261,31 @@ namespace LifeLogs.WindowUtil {
             return (GetStyle(hWnd, NativeMethods.GWL_EXSTYLE) & NativeMethods.WS_EX_TOOLWINDOW) == 0;
         }
 
-        /// <summary> 창을 숨긴다. 앱이 꺼질 때 원래 창 모양으로 되돌리는 동안 화면에 보이지 않게 한다. </summary>
+        /// <summary> 창을 숨긴다. 켤 때 창 모양을 갖추기 전과 꺼질 때 원래 창 모양으로 되돌리는 동안 화면에 보이지 않게 한다. </summary>
         internal static void HideWindow(IntPtr hWnd) {
             if (hWnd == IntPtr.Zero) {
                 return;
             }
 
             NativeMethods.ShowWindow(hWnd, NativeMethods.SW_HIDE);
+        }
+
+        /// <summary> 숨긴 창을 다시 보이게 한다. </summary>
+        internal static void ShowWindow(IntPtr hWnd) {
+            if (hWnd == IntPtr.Zero) {
+                return;
+            }
+
+            NativeMethods.ShowWindow(hWnd, NativeMethods.SW_SHOW);
+        }
+
+        /// <summary> 창이 보이는 상태인지 조회한다. </summary>
+        internal static bool IsWindowVisible(IntPtr hWnd) {
+            if (hWnd == IntPtr.Zero) {
+                return false;
+            }
+
+            return NativeMethods.IsWindowVisible(hWnd);
         }
 
         internal static void SetTaskbarButtonVisible(IntPtr hWnd, bool visible) {
@@ -277,9 +295,15 @@ namespace LifeLogs.WindowUtil {
                 ? exStyle & ~NativeMethods.WS_EX_TOOLWINDOW
                 : exStyle | NativeMethods.WS_EX_TOOLWINDOW;
 
+            // 켤 때 숨겨 둔 창은 스타일만 바꾸고 숨긴 채로 둔다. 보이게 하는 것은 시작 숨김이 맡는다.
+            bool wasVisible = NativeMethods.IsWindowVisible(hWnd);
+
             NativeMethods.ShowWindow(hWnd, NativeMethods.SW_HIDE);
             SetStyle(hWnd, NativeMethods.GWL_EXSTYLE, exStyle);
-            NativeMethods.ShowWindow(hWnd, NativeMethods.SW_SHOW);
+
+            if (wasVisible) {
+                NativeMethods.ShowWindow(hWnd, NativeMethods.SW_SHOW);
+            }
         }
 
         /// <summary> 창의 원본 스타일과 영역을 읽어 스냅샷으로 만든다. </summary>

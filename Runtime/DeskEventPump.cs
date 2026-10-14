@@ -44,6 +44,7 @@ namespace LifeLogs.WindowUtil {
             WindowDeskAPI.RefreshResizable();
             WindowDeskAPI.RefreshTopMost();
             WindowDeskAPI.RefreshDesktopWindow();
+            WindowDeskAPI.RefreshHiddenStart();
             DeskTray.Tick();
         }
 

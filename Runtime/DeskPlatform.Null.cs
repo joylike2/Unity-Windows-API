@@ -105,6 +105,16 @@ namespace LifeLogs.WindowUtil {
             WarnOnce();
         }
 
+        /// <summary> 숨긴 창을 다시 보이게 한다. 창 제어를 제공하지 않는 플랫폼이라 아무것도 하지 않는다. </summary>
+        internal static void ShowWindow(IntPtr hWnd) {
+            WarnOnce();
+        }
+
+        /// <summary> 창이 보이는 상태인지 조회한다. 숨기지 않으므로 늘 보인다고 답한다. </summary>
+        internal static bool IsWindowVisible(IntPtr hWnd) {
+            return true;
+        }
+
         /// <summary> 창의 원본 스타일과 영역을 읽어 스냅샷으로 만든다. </summary>
         internal static bool TryCaptureWindowStyle(IntPtr hWnd, out DeskWindowStyleSnapshot snapshot) {
             snapshot = default;
