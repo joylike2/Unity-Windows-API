@@ -244,6 +244,30 @@ public class GameBootstrap : MonoBehaviour {
 
 **종료는 라이브러리가 맡습니다.** 앱이 꺼질 때(`Application.quitting`) 창부터 숨긴 뒤 투명 · 클릭 통과를 풀고 원래 창 모양으로 되돌립니다. 되돌리는 동안 불투명한 창이 잠깐 보이지 않습니다. 게임 도중 `Shutdown()` 을 직접 부르면 창은 숨기지 않고 되돌리기만 합니다.
 
+**켤 때 불투명한 창을 숨기려면 `HideUntilReady()` 를 가장 이른 시점에 부릅니다.** 유니티는 스크립트보다 먼저 평범한 창을 띄우고, 바탕화면 게임의 투명 · 테두리 제거는 첫 씬의 `Awake` · `Start` 가 끝난 첫 프레임에야 걸립니다. 그사이 불투명한(흰) 창이 보입니다.
+
+```csharp
+public static class DesktopStartHide {
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSplashScreen)]
+    private static void HideBeforeSplash() {
+        WindowDeskAPI.HideUntilReady();
+    }
+
+    // 스플래시 직전에 창을 아직 못 찾았으면 씬을 읽은 뒤 한 번 더 시도합니다. 이미 숨겼으면 아무것도 하지 않습니다.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    private static void HideBeforeSceneLoad() {
+        WindowDeskAPI.HideUntilReady();
+    }
+}
+```
+
+- 숨긴 창은 `DESKTOP_GAME` 초기화가 창 모양을 갖추고 그 화면이 두 번 그려진 뒤 다시 보입니다. 기다리는 동안 유니티가 창을 다시 띄우면 도로 숨깁니다.
+- 초기화를 하지 않았거나 바탕화면 게임이 아니면 첫 프레임 뒤에 바로 보이므로, 창이 숨은 채로 남지 않습니다.
+- **Run In Background 가 켜져 있어야 합니다.** 꺼져 있으면 숨긴 창이 포커스를 잃어 유니티가 멈추므로 숨기지 않고 경고만 남깁니다.
+- 숨겨 둔 동안 `SetTaskbarButtonVisible()` 을 불러도 스타일만 바뀌고 창은 숨긴 채로 남습니다.
+- 다시 보인 뒤에 부르면 아무것도 하지 않습니다. 반환값은 숨긴 채 기다리는 중일 때 `true` 입니다.
+
 　
 ### 해상도
 　
@@ -620,7 +644,7 @@ float scale = WindowDeskAPI.CurrentDpiScale;
 　
 | 분류 | 멤버 |
 |---|---|
-| 초기화 | `Initialize()` / `IsInitialized` / `ActiveProfiles` / `EnabledFeatures` / `IsFeatureEnabled()` / `Shutdown()` |
+| 초기화 | `Initialize()` / `IsInitialized` / `ActiveProfiles` / `EnabledFeatures` / `IsFeatureEnabled()` / `Shutdown()` / `HideUntilReady()` |
 | 해상도 | `GetSupportedResolutions()` / `ApplyResolution()` / `GetAppliedResolution()` / `GetMonitorResolution()` / `TryFindNearestResolution()` |
 | 표시 방식 | `ApplyDisplayMode()` / `CurrentDisplayMode` / `IsDisplayModeSupported()` |
 | 모니터 | `GetMonitors()` / `GetLeftToRightOrder()` / `CurrentMonitorIndex` / `PrimaryMonitorIndex` / `MoveWindowToMonitor()` / `MonitorLostPolicy` / `GetMonitorLayout()` / `RefreshMonitors()` |
