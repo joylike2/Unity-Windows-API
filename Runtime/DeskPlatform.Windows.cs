@@ -426,6 +426,20 @@ namespace LifeLogs.WindowUtil {
             return true;
         }
 
+        /// <summary>
+        /// 창 크기를 1px 줄였다가 바로 되돌린다. 위치 · 그리기 순서 · 포커스는 그대로 둔다.
+        /// 작업표시줄은 맨 앞 창이 모니터 전체를 덮으면 자기를 뒤로 내리는데, 가려 둔 창은 이 판단에서 빠지고 가림을 풀어도 다시 판단하지 않는다.
+        /// 가림을 푼 뒤 크기 바뀜 신호를 줘 작업표시줄이 다시 판단하게 할 때 쓴다.
+        /// </summary>
+        internal static void NudgeWindowSize(IntPtr hWnd) {
+            if (hWnd == IntPtr.Zero || !TryGetWindowRect(hWnd, out RectInt rect)) {
+                return;
+            }
+
+            SetSize(hWnd, rect.width - 1, rect.height);
+            SetSize(hWnd, rect.width, rect.height);
+        }
+
         internal static void SetPosition(IntPtr hWnd, int x, int y) {
             uint flags = NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE;
             NativeMethods.SetWindowPos(hWnd, IntPtr.Zero, x, y, 0, 0, flags);

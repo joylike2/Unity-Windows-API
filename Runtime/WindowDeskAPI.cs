@@ -764,7 +764,12 @@ namespace LifeLogs.WindowUtil {
             _hasRevealedHiddenStart = true;
 
             if (_isCloakedStart) {
-                if (!DeskPlatform.SetCloaked(_hiddenHandle, false)) {
+                if (DeskPlatform.SetCloaked(_hiddenHandle, false)) {
+                    // 작업표시줄은 가려 둔 창이 모니터 전체를 덮어도 뒤로 내려가지 않고, 가림을 풀어도 다시 판단하지 않아 바탕화면 창 위에 남는다.
+                    // 크기 바뀜 신호를 줘 다시 판단하게 한다
+                    DeskPlatform.NudgeWindowSize(_hiddenHandle);
+                }
+                else {
                     Debug.LogError("[WindowDeskAPI] 켤 때 가린 창을 다시 드러내지 못했습니다.");
                 }
             }
