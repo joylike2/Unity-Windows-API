@@ -1,4 +1,4 @@
-# Unity Windows API (v1.0.0)
+# Unity Windows API (v1.1.0)
 　
 　
 ## ✅ 소개
@@ -353,6 +353,25 @@ RectInt clamped = WindowDeskAPI.ClampToWorkArea(rect);
 Vector2Int point = WindowDeskAPI.ClampToWorkArea(position);
 ```
 
+**자동 숨김 작업표시줄은 작업 영역을 차지하지 않아 `GetWorkAreaInsets()` 가 0 입니다.** 작업표시줄이 펼쳐질 때 가리지 않게 두려면 안전 두께를 쓰십시오.
+작업 영역 두께에 그 모니터 작업표시줄 두께를 변마다 큰 값으로 합친 값이라, 작업표시줄이 보이면 작업 영역 두께와 같고 자동 숨김이면 펼쳤을 때 두께가 들어갑니다.
+
+```csharp
+DeskEdgeInsets safe = WindowDeskAPI.GetSafeAreaInsets();             // 픽셀
+DeskEdgeInsets scaledSafe = WindowDeskAPI.GetScaledSafeAreaInsets(); // DPI 배율 반영
+
+// 작업표시줄 자체: 붙은 변 · 펼친 사각형 · 두께 · 자동 숨김 · 주 작업표시줄 여부
+if (WindowDeskAPI.TryGetCurrentTaskbar(out DeskTaskbarInfo taskbar)) {
+    bool isAtBottom = taskbar.Edge == DESK_TASKBAR_EDGE.BOTTOM;
+}
+
+IReadOnlyList<DeskTaskbarInfo> all = WindowDeskAPI.GetTaskbars();   // 모든 모니터 (보조 모니터 작업표시줄 포함)
+```
+
+- 작업표시줄은 위 · 왼쪽 · 오른쪽에도 올 수 있습니다. Windows 10 은 원래 되고, Windows 11 은 2026년 8월 업데이트(KB5120998, 24H2 · 25H2)부터 설정에서 고를 수 있습니다
+- 붙은 변은 작업표시줄 창 자리로 정합니다. OS 가 알려 주는 변(`SHAppBarMessage`)과 다르면 경고를 한 번 남기고 창 자리를 따릅니다
+- 모니터 정보(`MONITOR_INFO`)를 선언해야 하고, Windows 에서만 값이 나옵니다. 그 밖에는 빈 목록 · `false` · 작업 영역 두께를 돌려줍니다
+
 　
 ### 창 상태
 　
@@ -615,6 +634,30 @@ public class ScreenOptionPanel : MonoBehaviour, IDeskDisplayListener {
 ```
 
 　
+### 작업표시줄 변경 후킹
+　
+작업표시줄을 옮기거나 자동 숨김을 켜고 끄거나 두께가 바뀌면 `IDeskTaskbarListener` 로 받습니다. 모니터 작업 영역이 바뀌어도 옵니다.
+1초마다 확인하며 모니터 정보(`MONITOR_INFO`)를 선언해야 합니다. 기존 `IDeskDisplayListener` 구현이 깨지지 않게 따로 둔 인터페이스입니다.
+
+```csharp
+public class TaskbarAwareLayout : MonoBehaviour, IDeskTaskbarListener {
+
+    private void OnEnable() {
+        WindowDeskAPI.AddTaskbarListener(this);
+    }
+
+    private void OnDisable() {
+        WindowDeskAPI.RemoveTaskbarListener(this);
+    }
+
+    /// <summary> 작업표시줄이 바뀌었다. 가릴 영역을 다시 구해 배치를 맞춘다 </summary>
+    public void OnTaskbarChanged(IReadOnlyList<DeskTaskbarInfo> taskbars) {
+        DeskEdgeInsets safe = WindowDeskAPI.GetSafeAreaInsets();
+    }
+}
+```
+
+　
 ### 후킹 시 지켜야 할 것
 　
 - **`OnDisable` 에서 반드시 해제하십시오.** 파괴된 오브젝트가 목록에 남으면 알림을 보내다 예외가 납니다
@@ -652,13 +695,14 @@ float scale = WindowDeskAPI.CurrentDpiScale;
 | 표시 방식 | `ApplyDisplayMode()` / `CurrentDisplayMode` / `IsDisplayModeSupported()` |
 | 모니터 | `GetMonitors()` / `GetLeftToRightOrder()` / `CurrentMonitorIndex` / `PrimaryMonitorIndex` / `MoveWindowToMonitor()` / `MonitorLostPolicy` / `GetMonitorLayout()` / `RefreshMonitors()` |
 | 작업 영역 | `GetWorkAreaInsets()` / `GetScaledWorkAreaInsets()` / `ClampToWorkArea()` |
+| 작업표시줄 | `GetTaskbars()` / `TryGetTaskbar()` / `TryGetCurrentTaskbar()` / `GetSafeAreaInsets()` / `GetScaledSafeAreaInsets()` |
 | 창 상태 | `SetTopMost()` / `IsTopMostRequested` / `IsTopMostApplied()` / `SetResizable()` / `IsResizableRequested` / `SetBorderless()` / `IsBorderless` / `SetTaskbarButtonVisible()` / `SetCursorConfined()` / `GetWindowRect()` |
 | 프레임 | `SetTargetFrameRate()` / `TargetFrameRate` / `SetPowerSaving()` / `SetVSync()` / `IsVSyncEnabled` / `HasFocus` / `UNLIMITED_FRAME_RATE` |
 | 설정 | `SaveSettings()` / `HasSavedSettings` / `DeleteSettings()` / `SettingsFilePath` / `ExportSettings()` / `ImportSettings()` |
 | 바탕화면 | `IsTransparent` / `IsClickThrough` / `IsPassingThroughNow` / `EnableBackgroundAlphaProbe` / `BackgroundAlpha` / `TransparentReport` |
 | 트레이 | `EnableTray()` / `DisableTray()` / `SetTrayIcon()` / `SetTrayTooltip()` / `AddTrayMenuItem()` / `AddTrayMenuSeparator()` / `ClearTrayMenu()` / `SetTrayMenuTheme()` / `FocusGameWindow()` / `IsTraySupported` |
 | DPI | `CurrentDpiScale` / `ApplyDpiScaleToAllCanvases()` |
-| 후킹 | `AddInitializeListener()` / `AddDisplayListener()` / 및 각 `Remove...()` |
+| 후킹 | `AddInitializeListener()` / `AddDisplayListener()` / `AddTaskbarListener()` / 및 각 `Remove...()` |
 | 플랫폼 | `IsSupported` / `IsWindowControlEnabled` |
 
 　
