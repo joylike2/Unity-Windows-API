@@ -320,6 +320,83 @@ namespace LifeLogs.WindowUtil {
         }
     }
 
+    /// <summary> 작업표시줄이 붙은 모니터 변 </summary>
+    public enum DESK_TASKBAR_EDGE {
+        /// <summary> 알 수 없음 </summary>
+        NONE,
+
+        /// <summary> 왼쪽 (세로) </summary>
+        LEFT,
+
+        /// <summary> 위쪽 </summary>
+        TOP,
+
+        /// <summary> 오른쪽 (세로) </summary>
+        RIGHT,
+
+        /// <summary> 아래쪽 </summary>
+        BOTTOM,
+    }
+
+    /// <summary>
+    /// 작업표시줄 하나의 정보. 좌표는 가상 데스크탑 기준 물리 픽셀(좌상단 원점)로 <see cref="DeskMonitorInfo.Bounds"/> 와 같습니다.
+    /// 작업표시줄은 아래만이 아니라 위 · 좌 · 우 어디에든 올 수 있습니다 (Windows 10, Windows 11 은 2026년 8월 업데이트부터).
+    /// </summary>
+    public readonly struct DeskTaskbarInfo {
+
+        /// <summary>작업표시줄이 놓인 모니터 인덱스 (<see cref="WindowDeskAPI.GetMonitors"/> 순).</summary>
+        public int MonitorIndex { get; }
+
+        /// <summary>붙은 모니터 변.</summary>
+        public DESK_TASKBAR_EDGE Edge { get; }
+
+        /// <summary>펼쳤을 때 덮는 사각형. 자동 숨김으로 숨어 있어도 펼친 자리입니다.</summary>
+        public RectInt Bounds { get; }
+
+        /// <summary>붙은 변에서 화면 안쪽으로 차지하는 두께.</summary>
+        public int Thickness { get; }
+
+        /// <summary>
+        /// 자동 숨김이 켜져 있는지. 켜져 있으면 작업 영역을 차지하지 않아 <see cref="WindowDeskAPI.GetWorkAreaInsets"/> 에 두께가 잡히지 않습니다.
+        /// 가리지 않을 영역은 <see cref="WindowDeskAPI.GetSafeAreaInsets"/> 로 구하십시오.
+        /// </summary>
+        public bool IsAutoHide { get; }
+
+        /// <summary>주 작업표시줄(알림 영역이 있는 것)인지. 보조 모니터 작업표시줄이면 false.</summary>
+        public bool IsPrimary { get; }
+
+        public DeskTaskbarInfo(int monitorIndex, DESK_TASKBAR_EDGE edge, RectInt bounds, int thickness, bool isAutoHide, bool isPrimary) {
+            MonitorIndex = monitorIndex;
+            Edge = edge;
+            Bounds = bounds;
+            Thickness = thickness;
+            IsAutoHide = isAutoHide;
+            IsPrimary = isPrimary;
+        }
+
+        /// <summary> 붙은 변에만 두께가 있는 네 변 두께. 변을 모르면 전부 0. </summary>
+        public DeskEdgeInsets ToInsets() {
+            switch (Edge) {
+                case DESK_TASKBAR_EDGE.LEFT:
+                    return new DeskEdgeInsets(Thickness, 0, 0, 0);
+                case DESK_TASKBAR_EDGE.TOP:
+                    return new DeskEdgeInsets(0, Thickness, 0, 0);
+                case DESK_TASKBAR_EDGE.RIGHT:
+                    return new DeskEdgeInsets(0, 0, Thickness, 0);
+                case DESK_TASKBAR_EDGE.BOTTOM:
+                    return new DeskEdgeInsets(0, 0, 0, Thickness);
+                default:
+                    return DeskEdgeInsets.ZERO;
+            }
+        }
+
+        public override string ToString() {
+            string role = IsPrimary ? "주" : "보조";
+            string autoHide = IsAutoHide ? " 자동 숨김" : string.Empty;
+            return $"작업표시줄({MonitorIndex} {role}) {Edge} 두께 {Thickness} @({Bounds.x},{Bounds.y} {Bounds.width}x{Bounds.height}){autoHide}";
+        }
+    }
+
     /// <summary>
     /// 다른 모니터로 옮길 때 창을 어디에 놓을지.
     /// </summary>

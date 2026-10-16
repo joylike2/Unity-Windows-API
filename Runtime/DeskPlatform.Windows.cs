@@ -609,6 +609,98 @@ namespace LifeLogs.WindowUtil {
 
         #endregion 모니터 정보
 
+        #region 작업표시줄
+
+        private const string PRIMARY_TASKBAR_CLASS = "Shell_TrayWnd";
+        private const string SECONDARY_TASKBAR_CLASS = "Shell_SecondaryTrayWnd";
+
+        // 보조 모니터 작업표시줄을 찾는 반복이 OS 이상으로 끝나지 않는 일을 막는 상한. 모니터 수보다 넉넉하다
+        private const int MAX_SECONDARY_TASKBARS = 32;
+
+        /// <summary>
+        /// 주 작업표시줄(Shell_TrayWnd)과 보조 모니터 작업표시줄(Shell_SecondaryTrayWnd)을 읽어 <paramref name="buffer"/> 에 더합니다.
+        /// 탐색기가 꺼져 있어 작업표시줄이 없으면 빈 채로 true 입니다. 예외가 나면 buffer 를 비우고 false 입니다.
+        /// 자동 숨김은 모든 작업표시줄에 함께 걸리는 설정이라 한 번만 읽습니다.
+        /// </summary>
+        internal static bool TryReadTaskbars(List<DeskTaskbarSample> buffer, out Exception error) {
+            error = null;
+
+            try {
+                bool isAutoHide = IsTaskbarAutoHide();
+                IntPtr primary = NativeMethods.FindWindow(PRIMARY_TASKBAR_CLASS, null);
+
+                if (primary != IntPtr.Zero) {
+                    AddTaskbarSample(buffer, primary, GetPrimaryTaskbarEdge(), isAutoHide, true);
+                }
+
+                IntPtr secondary = IntPtr.Zero;
+
+                for (int i = 0; i < MAX_SECONDARY_TASKBARS; i++) {
+                    secondary = NativeMethods.FindWindowEx(IntPtr.Zero, secondary, SECONDARY_TASKBAR_CLASS, null);
+
+                    if (secondary == IntPtr.Zero) {
+                        break;
+                    }
+
+                    AddTaskbarSample(buffer, secondary, DESK_TASKBAR_EDGE.NONE, isAutoHide, false);
+                }
+
+                return true;
+            }
+            catch (Exception e) {
+                buffer.Clear();
+                error = e;
+                return false;
+            }
+        }
+
+        /// <summary> 보이는 작업표시줄 창이면 창 사각형과 모니터를 담아 더합니다. 숨은 창이나 사각형을 못 읽은 창은 건너뜁니다. </summary>
+        private static void AddTaskbarSample(List<DeskTaskbarSample> buffer, IntPtr hWnd, DESK_TASKBAR_EDGE reportedEdge, bool isAutoHide, bool isPrimary) {
+            if (!NativeMethods.IsWindowVisible(hWnd) || !NativeMethods.GetWindowRect(hWnd, out NativeRect rect)) {
+                return;
+            }
+
+            IntPtr monitor = NativeMethods.MonitorFromWindow(hWnd, NativeMethods.MONITOR_DEFAULTTONEAREST);
+            buffer.Add(new DeskTaskbarSample(monitor, ToRectInt(rect), reportedEdge, isAutoHide, isPrimary));
+        }
+
+        /// <summary> 작업표시줄 자동 숨김이 켜져 있는지 (ABM_GETSTATE). </summary>
+        private static bool IsTaskbarAutoHide() {
+            NativeAppBarData data = CreateAppBarData();
+            ulong state = NativeMethods.SHAppBarMessage(NativeMethods.ABM_GETSTATE, ref data).ToUInt64();
+            return (state & NativeMethods.ABS_AUTOHIDE) != 0;
+        }
+
+        /// <summary> OS 가 알려 주는 주 작업표시줄 변 (ABM_GETTASKBARPOS). 실패하면 NONE. </summary>
+        private static DESK_TASKBAR_EDGE GetPrimaryTaskbarEdge() {
+            NativeAppBarData data = CreateAppBarData();
+
+            if (NativeMethods.SHAppBarMessage(NativeMethods.ABM_GETTASKBARPOS, ref data) == UIntPtr.Zero) {
+                return DESK_TASKBAR_EDGE.NONE;
+            }
+
+            switch (data.uEdge) {
+                case NativeMethods.ABE_LEFT:
+                    return DESK_TASKBAR_EDGE.LEFT;
+                case NativeMethods.ABE_TOP:
+                    return DESK_TASKBAR_EDGE.TOP;
+                case NativeMethods.ABE_RIGHT:
+                    return DESK_TASKBAR_EDGE.RIGHT;
+                case NativeMethods.ABE_BOTTOM:
+                    return DESK_TASKBAR_EDGE.BOTTOM;
+                default:
+                    return DESK_TASKBAR_EDGE.NONE;
+            }
+        }
+
+        private static NativeAppBarData CreateAppBarData() {
+            return new NativeAppBarData {
+                cbSize = Marshal.SizeOf(typeof(NativeAppBarData))
+            };
+        }
+
+        #endregion 작업표시줄
+
         #region 지원 해상도
 
         /// <summary>
@@ -717,6 +809,16 @@ namespace LifeLogs.WindowUtil {
             [MarshalAs(UnmanagedType.Bool)] public bool fTransitionOnMaximized;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeAppBarData {
+            public int cbSize;
+            public IntPtr hWnd;
+            public uint uCallbackMessage;
+            public uint uEdge;
+            public NativeRect rc;
+            public IntPtr lParam;
+        }
+
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct NativeMonitorInfoEx {
             public int cbSize;
@@ -810,6 +912,14 @@ namespace LifeLogs.WindowUtil {
 
             public const int MDT_EFFECTIVE_DPI = 0;
 
+            public const uint ABM_GETSTATE = 0x00000004;
+            public const uint ABM_GETTASKBARPOS = 0x00000005;
+            public const uint ABS_AUTOHIDE = 0x0000001;
+            public const uint ABE_LEFT = 0;
+            public const uint ABE_TOP = 1;
+            public const uint ABE_RIGHT = 2;
+            public const uint ABE_BOTTOM = 3;
+
             public const int ENUM_CURRENT_SETTINGS = -1;
             public const int MIN_BITS_PER_PIXEL = 32;
 
@@ -885,6 +995,12 @@ namespace LifeLogs.WindowUtil {
 
             [DllImport("user32.dll", CharSet = CharSet.Unicode)]
             public static extern IntPtr FindWindow(string className, string windowName);
+
+            [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "FindWindowExW")]
+            public static extern IntPtr FindWindowEx(IntPtr hWndParent, IntPtr hWndChildAfter, string className, string windowName);
+
+            [DllImport("shell32.dll")]
+            public static extern UIntPtr SHAppBarMessage(uint dwMessage, ref NativeAppBarData pData);
 
             [DllImport("user32.dll")]
             public static extern bool IsIconic(IntPtr hWnd);

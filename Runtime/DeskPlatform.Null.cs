@@ -203,6 +203,16 @@ namespace LifeLogs.WindowUtil {
 
         #endregion 모니터 정보
 
+        #region 작업표시줄
+
+        internal static bool TryReadTaskbars(List<DeskTaskbarSample> buffer, out Exception error) {
+            WarnOnce();
+            error = new PlatformNotSupportedException(UNSUPPORTED_MESSAGE);
+            return false;
+        }
+
+        #endregion 작업표시줄
+
         #region 지원 해상도
 
         internal static List<DeskResolution> GetSupportedResolutions(string deviceName) {

@@ -1,9 +1,10 @@
+using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
 namespace LifeLogs.WindowUtil {
 
-    /// <summary> 모니터 구성이 바뀌었는지 주기적으로 확인하고 알림을 낸다. </summary>
+    /// <summary> 모니터 구성과 작업표시줄이 바뀌었는지 주기적으로 확인하고 알림을 낸다. </summary>
     internal static class DeskDisplayWatcher {
 
         private const float CHECK_INTERVAL_SECONDS = 1f;
@@ -11,10 +12,12 @@ namespace LifeLogs.WindowUtil {
         private const char MONITOR_SEPARATOR = ';';
 
         private static readonly StringBuilder SIGNATURE_BUILDER = new StringBuilder();
+        private static readonly List<DeskTaskbarInfo> TASKBAR_BUFFER = new List<DeskTaskbarInfo>();
 
         private static bool _isEnabled;
         private static float _nextCheckTime;
         private static string _lastSignature;
+        private static string _lastTaskbarSignature;
         private static string _lastCurrentDeviceName;
         private static int _lastCurrentIndex = -1;
         private static float _lastCurrentScaleFactor;
@@ -31,6 +34,7 @@ namespace LifeLogs.WindowUtil {
         internal static void Disable() {
             _isEnabled = false;
             _lastSignature = null;
+            _lastTaskbarSignature = null;
             _lastCurrentDeviceName = null;
             _lastCurrentIndex = -1;
             _lastCurrentScaleFactor = 0f;
@@ -44,6 +48,23 @@ namespace LifeLogs.WindowUtil {
 
             _nextCheckTime = Time.unscaledTime + CHECK_INTERVAL_SECONDS;
             CheckConfiguration();
+            CheckTaskbars();
+        }
+
+        /// <summary>
+        /// 작업표시줄 서명을 비교해 바뀌었으면 알린다. 모니터 구성 서명은 작업 영역을 보지 않아,
+        /// 작업표시줄을 옮기거나 자동 숨김을 켜고 끄는 일은 여기서만 잡힌다.
+        /// </summary>
+        private static void CheckTaskbars() {
+            DeskTaskbars.TryRead(TASKBAR_BUFFER);
+            string signature = BuildTaskbarSignature(DeskMonitorCache.GetMonitors(), TASKBAR_BUFFER);
+
+            if (signature == _lastTaskbarSignature) {
+                return;
+            }
+
+            _lastTaskbarSignature = signature;
+            DeskEvents.RaiseTaskbarChanged(new List<DeskTaskbarInfo>(TASKBAR_BUFFER));
         }
 
         /// <summary> 구성 서명을 비교해 바뀌었으면 알림을 내고 정책을 적용한다. </summary>
@@ -157,6 +178,9 @@ namespace LifeLogs.WindowUtil {
 
             _lastSignature = BuildSignature(layout);
             UpdateCurrentMonitorBaseline(layout);
+
+            DeskTaskbars.TryRead(TASKBAR_BUFFER);
+            _lastTaskbarSignature = BuildTaskbarSignature(DeskMonitorCache.GetMonitors(), TASKBAR_BUFFER);
         }
 
         private static void UpdateCurrentMonitorBaseline(DeskMonitorLayout layout) {
@@ -189,6 +213,32 @@ namespace LifeLogs.WindowUtil {
                     .Append(monitor.Bounds.width).Append(FIELD_SEPARATOR)
                     .Append(monitor.Bounds.height).Append(FIELD_SEPARATOR)
                     .Append(monitor.Dpi).Append(MONITOR_SEPARATOR);
+            }
+
+            return SIGNATURE_BUILDER.ToString();
+        }
+
+        /// <summary> 모니터마다 작업 영역과 작업표시줄마다 모니터 · 변 · 두께 · 자동 숨김을 이어 붙인 서명. 이 값이 달라지면 작업표시줄이 바뀐 것이다. </summary>
+        private static string BuildTaskbarSignature(IReadOnlyList<DeskMonitorInfo> monitors, List<DeskTaskbarInfo> taskbars) {
+            SIGNATURE_BUILDER.Clear();
+
+            for (int i = 0; i < monitors.Count; i++) {
+                RectInt workArea = monitors[i].WorkArea;
+
+                SIGNATURE_BUILDER.Append(monitors[i].DeviceName).Append(FIELD_SEPARATOR)
+                    .Append(workArea.x).Append(FIELD_SEPARATOR)
+                    .Append(workArea.y).Append(FIELD_SEPARATOR)
+                    .Append(workArea.width).Append(FIELD_SEPARATOR)
+                    .Append(workArea.height).Append(MONITOR_SEPARATOR);
+            }
+
+            for (int i = 0; i < taskbars.Count; i++) {
+                DeskTaskbarInfo taskbar = taskbars[i];
+
+                SIGNATURE_BUILDER.Append(taskbar.MonitorIndex).Append(FIELD_SEPARATOR)
+                    .Append(taskbar.Edge).Append(FIELD_SEPARATOR)
+                    .Append(taskbar.Thickness).Append(FIELD_SEPARATOR)
+                    .Append(taskbar.IsAutoHide).Append(MONITOR_SEPARATOR);
             }
 
             return SIGNATURE_BUILDER.ToString();

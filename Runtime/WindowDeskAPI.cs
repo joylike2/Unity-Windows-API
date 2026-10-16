@@ -297,6 +297,48 @@ namespace LifeLogs.WindowUtil {
             }
         }
 
+        private static readonly List<IDeskTaskbarListener> TASKBAR_LISTENERS = new List<IDeskTaskbarListener>();
+
+        private static bool _isListeningTaskbar;
+
+        /// <summary>
+        /// 작업표시줄 바뀜 알림을 받을 대상을 등록합니다. 모니터 정보(MONITOR_INFO)를 선언했을 때 1초마다 확인해 바뀌면 부릅니다.
+        /// 같은 대상을 두 번 넣어도 한 번만 등록됩니다.
+        /// </summary>
+        /// <param name="listener">알림을 받을 대상.</param>
+        public static void AddTaskbarListener(IDeskTaskbarListener listener) {
+            if (listener == null || TASKBAR_LISTENERS.Contains(listener)) {
+                return;
+            }
+
+            TASKBAR_LISTENERS.Add(listener);
+
+            if (_isListeningTaskbar) {
+                return;
+            }
+
+            _isListeningTaskbar = true;
+            DeskEvents.TaskbarChanged += NotifyTaskbarChanged;
+        }
+
+        /// <summary> 등록을 해제합니다. 오브젝트가 사라지기 전에 반드시 호출하십시오. </summary>
+        /// <param name="listener">해제할 대상.</param>
+        public static void RemoveTaskbarListener(IDeskTaskbarListener listener) {
+            TASKBAR_LISTENERS.Remove(listener);
+        }
+
+        /// <summary> 하나가 터져도 나머지가 알림을 받도록 각각 감싼다. </summary>
+        private static void NotifyTaskbarChanged(IReadOnlyList<DeskTaskbarInfo> taskbars) {
+            for (int i = TASKBAR_LISTENERS.Count - 1; i >= 0; i--) {
+                try {
+                    TASKBAR_LISTENERS[i].OnTaskbarChanged(taskbars);
+                }
+                catch (Exception e) {
+                    Debug.LogError($"[WindowDeskAPI] 작업표시줄 변경 알림 처리 중 예외: {e}");
+                }
+            }
+        }
+
         #endregion 알림 수신
 
         #region 설정 파일
@@ -1542,6 +1584,100 @@ namespace LifeLogs.WindowUtil {
         }
 
         #endregion 모니터
+
+        #region 작업표시줄
+
+        private static readonly List<DeskTaskbarInfo> TASKBAR_QUERY_BUFFER = new List<DeskTaskbarInfo>();
+
+        /// <summary>
+        /// 모든 모니터의 작업표시줄을 새로 읽어 돌려줍니다. 부를 때마다 새 목록입니다.
+        /// 모니터 정보(MONITOR_INFO)를 선언하지 않았거나 지원하지 않는 플랫폼이면 빈 목록입니다.
+        /// </summary>
+        public static IReadOnlyList<DeskTaskbarInfo> GetTaskbars() {
+            List<DeskTaskbarInfo> taskbars = new List<DeskTaskbarInfo>();
+
+            if (RequireFeature(DESK_WINDOW_FEATURE.MONITOR_INFO)) {
+                DeskTaskbars.TryRead(taskbars);
+            }
+
+            return taskbars;
+        }
+
+        /// <summary> 모니터에 놓인 작업표시줄을 가져옵니다. 그 모니터에 작업표시줄이 없거나(보조 모니터에 띄우지 않는 설정 등) 읽지 못하면 false. </summary>
+        /// <param name="monitorIndex">대상 모니터 인덱스.</param>
+        /// <param name="taskbar">찾은 작업표시줄.</param>
+        public static bool TryGetTaskbar(int monitorIndex, out DeskTaskbarInfo taskbar) {
+            taskbar = default;
+
+            if (monitorIndex < 0 || !ReadTaskbars()) {
+                return false;
+            }
+
+            for (int i = 0; i < TASKBAR_QUERY_BUFFER.Count; i++) {
+                if (TASKBAR_QUERY_BUFFER[i].MonitorIndex == monitorIndex) {
+                    taskbar = TASKBAR_QUERY_BUFFER[i];
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary> 창이 놓인 모니터의 작업표시줄을 가져옵니다. 없거나 읽지 못하면 false. </summary>
+        /// <param name="taskbar">찾은 작업표시줄.</param>
+        public static bool TryGetCurrentTaskbar(out DeskTaskbarInfo taskbar) {
+            return TryGetTaskbar(Monitors.CurrentIndex, out taskbar);
+        }
+
+        /// <summary>
+        /// 작업표시줄에 가리지 않는 네 변 두께를 돌려줍니다. 단위는 물리 픽셀로 <see cref="GetWorkAreaInsets"/> 와 같습니다.
+        /// 작업 영역 두께에 그 모니터 작업표시줄 두께를 변마다 큰 값으로 합칩니다. 자동 숨김 작업표시줄은 작업 영역을 차지하지 않아
+        /// 작업 영역 두께에는 0 이지만, 여기서는 펼쳤을 때 덮는 두께가 들어갑니다. 작업표시줄을 읽지 못하면 작업 영역 두께와 같습니다.
+        /// 캔버스 UI 에는 <see cref="GetScaledSafeAreaInsets"/> 를 쓰십시오.
+        /// </summary>
+        /// <param name="monitorIndex">대상 모니터. 음수면 창이 놓인 모니터.</param>
+        /// <returns>네 변의 두께. 모니터를 찾지 못하면 전부 0.</returns>
+        public static DeskEdgeInsets GetSafeAreaInsets(int monitorIndex = -1) {
+            int index = monitorIndex >= 0 ? monitorIndex : Monitors.CurrentIndex;
+
+            if (!Monitors.TryGetAt(index, out DeskMonitorInfo monitor)) {
+                return DeskEdgeInsets.ZERO;
+            }
+
+            DeskEdgeInsets workAreaInsets = DeskEdgeInsets.FromBounds(monitor.Bounds, monitor.WorkArea);
+
+            if (!ReadTaskbars()) {
+                return workAreaInsets;
+            }
+
+            return DeskTaskbarMath.AddTaskbars(workAreaInsets, TASKBAR_QUERY_BUFFER, index);
+        }
+
+        /// <summary>
+        /// 작업표시줄에 가리지 않는 네 변 두께를 모니터 배율로 나눠 돌려줍니다. Constant Pixel Size 캔버스 배치에 씁니다.
+        /// 화면 좌표 · 월드 좌표에는 <see cref="GetSafeAreaInsets"/> 를 쓰십시오.
+        /// </summary>
+        /// <param name="monitorIndex">대상 모니터. 음수면 창이 놓인 모니터.</param>
+        /// <returns>배율로 나눈 네 변의 두께. 모니터를 찾지 못하면 전부 0.</returns>
+        public static DeskEdgeInsets GetScaledSafeAreaInsets(int monitorIndex = -1) {
+            if (!TryResolveMonitor(monitorIndex, out DeskMonitorInfo monitor) || monitor.ScaleFactor <= 0f) {
+                return DeskEdgeInsets.ZERO;
+            }
+
+            return GetSafeAreaInsets(monitorIndex).Divide(monitor.ScaleFactor);
+        }
+
+        /// <summary> 조회용 버퍼에 작업표시줄을 새로 읽는다. 모니터 정보를 선언하지 않았거나 읽지 못하면 false. </summary>
+        private static bool ReadTaskbars() {
+            if (!RequireFeature(DESK_WINDOW_FEATURE.MONITOR_INFO)) {
+                TASKBAR_QUERY_BUFFER.Clear();
+                return false;
+            }
+
+            return DeskTaskbars.TryRead(TASKBAR_QUERY_BUFFER);
+        }
+
+        #endregion 작업표시줄
 
         #region 설정 문자열
 

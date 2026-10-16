@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
 
@@ -33,6 +34,9 @@ namespace LifeLogs.WindowUtil {
         /// <summary> 창 활성 / 비활성 </summary>
         public static event Action<bool> WindowFocusChanged;
 
+        /// <summary> 작업표시줄 자리 · 두께 · 자동 숨김이나 모니터 작업 영역이 바뀜. 인자는 바뀐 뒤의 작업표시줄 목록 사본 </summary>
+        public static event Action<IReadOnlyList<DeskTaskbarInfo>> TaskbarChanged;
+
         /// <summary> 발행을 기다리는 알림 개수 </summary>
         public static int PendingCount => PENDING.Count;
 
@@ -45,6 +49,7 @@ namespace LifeLogs.WindowUtil {
             ResolutionChanged = null;
             DisplayModeChanged = null;
             WindowFocusChanged = null;
+            TaskbarChanged = null;
 
             while (PENDING.TryDequeue(out _)) {
             }
@@ -78,6 +83,10 @@ namespace LifeLogs.WindowUtil {
 
         internal static void RaiseWindowFocusChanged(bool hasFocus) {
             Dispatch(() => Invoke(WindowFocusChanged, hasFocus));
+        }
+
+        internal static void RaiseTaskbarChanged(IReadOnlyList<DeskTaskbarInfo> taskbars) {
+            Dispatch(() => Invoke(TaskbarChanged, taskbars));
         }
 
         #endregion 발행
