@@ -372,6 +372,52 @@ IReadOnlyList<DeskTaskbarInfo> all = WindowDeskAPI.GetTaskbars();   // 모든 �
 - 붙은 변은 작업표시줄 창 자리로 정합니다. OS 가 알려 주는 변(`SHAppBarMessage`)과 다르면 경고를 한 번 남기고 창 자리를 따릅니다
 - 모니터 정보(`MONITOR_INFO`)를 선언해야 하고, Windows 에서만 값이 나옵니다. 그 밖에는 빈 목록 · `false` · 작업 영역 두께를 돌려줍니다
 
+#### 작업표시줄 호출 함수
+
+모두 `WindowDeskAPI` 의 정적 멤버입니다. `monitorIndex` 를 받는 함수는 음수(기본값 `-1`)면 창이 놓인 모니터를 봅니다. 작업표시줄 조회(`GetTaskbars` · `TryGet...Taskbar` · `GetSafeAreaInsets`)는 부를 때마다 작업표시줄을 OS 에서 새로 읽으므로 매 프레임 부르지 말고 바뀜 알림 때 다시 읽으십시오.
+
+| 함수 | 돌려주는 값 | 못 읽을 때 |
+|---|---|---|
+| `GetTaskbars()` | 모든 모니터의 작업표시줄 목록 `IReadOnlyList<DeskTaskbarInfo>` (보조 모니터 포함, 부를 때마다 새 목록) | 빈 목록 |
+| `TryGetTaskbar(int monitorIndex, out DeskTaskbarInfo taskbar)` | 그 모니터에 놓인 작업표시줄 | `false` (그 모니터에 작업표시줄이 없는 설정도 `false`) |
+| `TryGetCurrentTaskbar(out DeskTaskbarInfo taskbar)` | 창이 놓인 모니터의 작업표시줄 | `false` |
+| `GetSafeAreaInsets(int monitorIndex = -1)` | 작업표시줄에 가리지 않는 네 변 두께 `DeskEdgeInsets` (물리 픽셀). 작업 영역 두께와 작업표시줄 두께를 변마다 큰 값으로 합침 | 작업 영역 두께. 모니터를 못 찾으면 전부 0 |
+| `GetScaledSafeAreaInsets(int monitorIndex = -1)` | 위 값을 모니터 배율로 나눈 두께 (Constant Pixel Size 캔버스용) | 위와 같음 |
+| `GetWorkAreaInsets(int monitorIndex = -1)` | 작업 영역 밖 네 변 두께 (물리 픽셀). 자동 숨김 작업표시줄은 0 | 모니터를 못 찾으면 전부 0 |
+| `GetScaledWorkAreaInsets(int monitorIndex = -1)` | 위 값을 모니터 배율로 나눈 두께 | 위와 같음 |
+| `ClampToWorkArea(RectInt rect, int monitorIndex = -1)` / `ClampToWorkArea(Vector2Int point, int monitorIndex = -1)` | 작업 영역 안으로 옮긴 사각형 · 점 | 모니터를 못 찾으면 받은 값 그대로 |
+| `AddTaskbarListener(IDeskTaskbarListener listener)` | 작업표시줄 바뀜 알림 등록. 같은 대상은 한 번만 | — |
+| `RemoveTaskbarListener(IDeskTaskbarListener listener)` | 등록 해제. `OnDisable` 에서 부르십시오 | — |
+
+**어느 함수를 쓸까**
+
+- 창 · 오브젝트를 작업표시줄에 가리지 않게 둘 때: `GetSafeAreaInsets()` (캔버스 UI 는 `GetScaledSafeAreaInsets()`)
+- 작업표시줄이 어느 변에 있는지 · 자동 숨김인지에 따라 배치를 바꿀 때: `TryGetCurrentTaskbar()` 의 `Edge` · `IsAutoHide`
+- 작업표시줄을 옮기거나 자동 숨김을 바꿨을 때 다시 배치: `IDeskTaskbarListener.OnTaskbarChanged` 에서 위 값을 다시 읽음
+- 작업표시줄이 실제로 차지한 영역만 필요할 때(자동 숨김 제외): `GetWorkAreaInsets()`
+
+**`DeskTaskbarInfo`**
+
+| 멤버 | 뜻 |
+|---|---|
+| `MonitorIndex` | 놓인 모니터 인덱스 (`GetMonitors()` 순) |
+| `Edge` | 붙은 변 `DESK_TASKBAR_EDGE`: `LEFT` · `TOP` · `RIGHT` · `BOTTOM` (모르면 `NONE`) |
+| `Bounds` | 펼쳤을 때 덮는 사각형 (가상 데스크탑 픽셀). 자동 숨김으로 숨어 있어도 펼친 자리 |
+| `Thickness` | 붙은 변에서 화면 안쪽으로 차지하는 두께 (픽셀) |
+| `IsAutoHide` | 자동 숨김이 켜져 있는지 |
+| `IsPrimary` | 주 작업표시줄(알림 영역이 있는 것)인지. 보조 모니터 작업표시줄이면 `false` |
+| `ToInsets()` | 붙은 변에만 두께가 있는 `DeskEdgeInsets`. 변을 모르면 전부 0 |
+
+```csharp
+// 예: 바닥에 붙는 UI 를 작업표시줄에 가리지 않게 올린다
+// 작업표시줄이 위 · 좌 · 우에 있으면 safe.Bottom 이 0 이라 화면 끝에 붙지 않게 최소 여백을 둔다
+DeskEdgeInsets safe = WindowDeskAPI.GetScaledSafeAreaInsets();
+float bottomMargin = Mathf.Max(safe.Bottom, minBottomMargin);
+
+bool isTaskbarAtBottom = WindowDeskAPI.TryGetCurrentTaskbar(out DeskTaskbarInfo taskbar)
+                         && taskbar.Edge == DESK_TASKBAR_EDGE.BOTTOM;
+```
+
 　
 ### 창 상태
 　
