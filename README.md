@@ -124,6 +124,8 @@ https://github.com/joylike2/Unity-Windows-API.git#v1.0.0
 
 씬이 여럿이면 씬마다 관찰자가 하나씩 있으므로, **씬별로 기준과 대상을 다르게 둘 수 있습니다.** 예를 들어 게임 씬은 `DPI`, 타이틀 씬은 `REFERENCE_RESOLUTION` 으로 둘 수 있습니다.
 
+모니터를 옮겨 다니는 바탕화면 게임에서 해상도 비율(4K 2배)로 키우려면 `REFERENCE_RESOLUTION` 대신 [해상도 기준 UI 배율 — 4K 대응은 게임 코드로 맞춥니다](#해상도-기준-ui-배율--4k-대응은-게임-코드로-맞춥니다) 절을 보십시오.
+
 캔버스 하나만 맡기려면 `Setup Scene Scale` 대신 그 캔버스에 **`DeskDpiScaleBinder`** 컴포넌트를 붙이십시오. 배율을 바꾸면 안 되는 캔버스가 섞여 있을 때 씁니다.
 
 　
@@ -728,6 +730,88 @@ float scale = WindowDeskAPI.CurrentDpiScale;
 | `DeskDpiScaleBinder` | 캔버스 하나만 맡김 |
 
 `DeskSceneObserver` 는 씬마다 **배율 기준(`DPI` · `REFERENCE_RESOLUTION`)** 과 **대상(캔버스만 · 카메라도 · 카메라 배경 보정)** 을 인스펙터에서 고를 수 있습니다. 붙이는 방법과 기준 선택은 [바탕화면 게임 — 카메라와 배율은 씬마다 따로 맞춥니다](#바탕화면-게임--카메라와-배율은-씬마다-따로-맞춥니다) 절에 있습니다.
+
+　
+### 해상도 기준 UI 배율 — 4K 대응은 게임 코드로 맞춥니다
+　
+UI 를 1080p 기준으로 만든 바탕화면 게임은 4K 모니터에서 UI 가 절반 크기로 보입니다. Windows 배율과 상관없이 **해상도 비율(4K 2배)** 로 키우려면, 관찰자의 `REFERENCE_RESOLUTION` 보다 게임 코드에서 직접 맞추는 편이 안전합니다. (Grow a Blue World 에서 2026-10-20 에 이렇게 맞췄습니다)
+
+**관찰자 `REFERENCE_RESOLUTION` 을 그대로 쓰면 걸리는 점**
+
+| 문제 | 이유 |
+|---|---|
+| 모니터를 옮긴 직후 배율이 틀릴 수 있음 | 기준 해상도 계산이 `Screen.height` 를 씁니다. `MoveWindowToMonitor` 는 창 크기를 바꾼 그 자리에서 배율 알림을 보내는데, 해상도 적용은 한 프레임 뒤라 `Screen.height` 가 아직 옛 모니터 값일 수 있습니다 |
+| 에디터 · 맥에서 확인할 수 없음 | 라이브러리가 에디터 · 맥에서 꺼져 있어 관찰자도 돌지 않습니다 |
+| 3D 화면이 흐려짐 | `RawImage` 로 보여 주는 렌더 텍스처는 캔버스만 키우면 늘어나 흐려집니다 |
+| 배치 순서가 정해지지 않음 | 게임의 배치 코드(작업 영역 안으로 맞추기 등)도 같은 알림을 받습니다. 게임이 먼저 돌면 옛 배율로 자리를 잡습니다 |
+
+`DPI` 기준은 `Screen.height` 가 아니라 모니터 정보(`ScaleFactor`)를 읽으므로 첫 번째 문제는 없습니다.
+
+**게임 코드로 맞추는 순서**
+
+1. 키울 캔버스는 `Constant Pixel Size` 로 둡니다. 그 아래 중첩 캔버스(창 · 팝업)는 루트 캔버스 배율을 따릅니다
+2. 배율 = `max(1, 모니터 세로 ÷ 1080)` — 1440p 1.33배, 4K 2배, 그보다 낮은 모니터는 줄이지 않습니다. 모니터 세로는 `Screen.height` 가 아니라 `GetMonitors()[CurrentMonitorIndex].Bounds.height` 로 읽습니다 (에디터는 `PlayModeWindow.GetRenderingResolution`)
+3. 첫 화면을 그리기 전에 한 번, 그리고 `IDeskDisplayListener` 의 `OnCurrentMonitorChanged` · `OnResolutionChanged` · `OnDisplayConfigurationChanged` · `OnCurrentMonitorLost` · `OnDpiScaleChanged` 에서 다시 계산합니다. 코드로 `MoveWindowToMonitor` 를 부른 뒤에도 다시 계산합니다
+4. `CanvasScaler.scaleFactor` 와 `Canvas.scaleFactor` 에 **함께** 넣습니다. `CanvasScaler` 는 자기 `Update` 에서야 캔버스에 반영하므로, 하나만 넣으면 바로 뒤에 배치하는 코드가 옛 배율을 읽습니다
+5. 배율을 건 **다음에** 배치를 다시 합니다. 픽셀 ↔ 캔버스 단위는 `canvas.scaleFactor` 로 나누고, 작업 영역 두께도 `GetSafeAreaInsets()`(px) 를 같은 값으로 나눕니다. `GetScaledSafeAreaInsets()` 는 DPI 로 나눈 값이라 해상도 배율과 섞으면 안 됩니다
+6. `RawImage` 로 보여 주는 렌더 텍스처는 해상도도 같은 배율로 올립니다
+
+```csharp
+/// 모니터 해상도로 픽셀 고정 캔버스 배율을 맞춘다 (4K 2배). 배치는 Applied 를 받은 뒤 다시 한다.
+public sealed class MonitorUiScale : IDeskDisplayListener, IDisposable {
+
+    private const float BASE_HEIGHT = 1080f;
+
+    private readonly CanvasScaler _scaler;
+    private readonly Canvas _canvas;
+
+    /// 배율을 건 뒤. 작업 영역 안으로 맞추기 같은 배치를 여기서 다시 한다.
+    public event Action Applied;
+
+    public MonitorUiScale(CanvasScaler scaler) {
+        _scaler = scaler;
+        _canvas = scaler.GetComponent<Canvas>();
+        WindowDeskAPI.AddDisplayListener(this);
+    }
+
+    public void Dispose() {
+        WindowDeskAPI.RemoveDisplayListener(this);
+    }
+
+    /// 첫 화면을 그리기 전에 한 번 부른다.
+    public void Apply() {
+        float scale = Mathf.Max(1f, ReadMonitorHeight() / BASE_HEIGHT);
+        _scaler.scaleFactor = scale;
+        _canvas.scaleFactor = scale;   // CanvasScaler 는 Update 에서야 반영한다
+        Applied?.Invoke();
+    }
+
+    private static int ReadMonitorHeight() {
+#if UNITY_EDITOR
+        UnityEditor.PlayModeWindow.GetRenderingResolution(out uint _, out uint height);
+        return (int)height;
+#else
+        if (WindowDeskAPI.IsWindowControlEnabled) {
+            IReadOnlyList<DeskMonitorInfo> monitors = WindowDeskAPI.GetMonitors();
+            int index = WindowDeskAPI.CurrentMonitorIndex;
+            if (index >= 0 && index < monitors.Count) {
+                return monitors[index].Bounds.height;
+            }
+        }
+
+        return Screen.height;   // 창 API 를 쓸 수 없는 플랫폼
+#endif
+    }
+
+    public void OnCurrentMonitorChanged(int monitorIndex) => Apply();
+    public void OnResolutionChanged(DeskResolution resolution) => Apply();
+    public void OnDisplayConfigurationChanged(DeskMonitorLayout layout) => Apply();
+    public void OnCurrentMonitorLost(int lostIndex) => Apply();
+    public void OnDpiScaleChanged(float scaleRatio) => Apply();
+    public void OnDisplayModeChanged(DESK_DISPLAY_MODE mode) { }
+    public void OnWindowFocusChanged(bool hasFocus) { }
+}
+```
 
 　
 　
