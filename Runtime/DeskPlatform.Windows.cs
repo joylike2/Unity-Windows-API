@@ -4,6 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace LifeLogs.WindowUtil {
@@ -617,20 +619,32 @@ namespace LifeLogs.WindowUtil {
         // 보조 모니터 작업표시줄을 찾는 반복이 OS 이상으로 끝나지 않는 일을 막는 상한. 모니터 수보다 넉넉하다
         private const int MAX_SECONDARY_TASKBARS = 32;
 
+        // 자동 숨김 · 주 작업표시줄 변은 SHAppBarMessage 로 탐색기에 물어야 한다. 이 호출은 탐색기 작업표시줄 스레드가 답할 때까지
+        // 기다려, 탐색기가 바쁘면(로그인 직후 자동 실행, 작업표시줄 멈춤) 메인 스레드가 몇 초씩 멈추고 "응답 없음"이 뜰 수 있다.
+        // 그래서 백그라운드 작업으로 묻고, 메인 스레드는 마지막으로 받은 답만 쓴다. 묻는 중이면 새로 묻지 않아 멈춘 탐색기에 작업이 쌓이지 않는다.
+        private static readonly object APP_BAR_LOCK = new object();
+        private static bool _appBarAutoHide;
+        private static DESK_TASKBAR_EDGE _appBarEdge = DESK_TASKBAR_EDGE.NONE;
+        private static int _isAppBarQueryRunning;
+        private static Exception _appBarError;
+        private static bool _isAppBarErrorLogged;
+
         /// <summary>
         /// 주 작업표시줄(Shell_TrayWnd)과 보조 모니터 작업표시줄(Shell_SecondaryTrayWnd)을 읽어 <paramref name="buffer"/> 에 더합니다.
         /// 탐색기가 꺼져 있어 작업표시줄이 없으면 빈 채로 true 입니다. 예외가 나면 buffer 를 비우고 false 입니다.
-        /// 자동 숨김은 모든 작업표시줄에 함께 걸리는 설정이라 한 번만 읽습니다.
+        /// 자동 숨김은 모든 작업표시줄에 함께 걸리는 설정이라 한 번만 읽습니다. 자동 숨김 · OS 가 알려 주는 변은 백그라운드에서 마지막으로 받은 답이라
+        /// 바뀐 뒤 다음 조회(감시는 1초마다)에 반영됩니다. 창 사각형 · 모니터 조회는 메시지를 보내지 않아 그 자리에서 읽습니다.
         /// </summary>
         internal static bool TryReadTaskbars(List<DeskTaskbarSample> buffer, out Exception error) {
             error = null;
 
             try {
-                bool isAutoHide = IsTaskbarAutoHide();
+                RequestAppBarState();
+                ReadAppBarState(out bool isAutoHide, out DESK_TASKBAR_EDGE reportedEdge);
                 IntPtr primary = NativeMethods.FindWindow(PRIMARY_TASKBAR_CLASS, null);
 
                 if (primary != IntPtr.Zero) {
-                    AddTaskbarSample(buffer, primary, GetPrimaryTaskbarEdge(), isAutoHide, true);
+                    AddTaskbarSample(buffer, primary, reportedEdge, isAutoHide, true);
                 }
 
                 IntPtr secondary = IntPtr.Zero;
@@ -664,14 +678,76 @@ namespace LifeLogs.WindowUtil {
             buffer.Add(new DeskTaskbarSample(monitor, ToRectInt(rect), reportedEdge, isAutoHide, isPrimary));
         }
 
-        /// <summary> 작업표시줄 자동 숨김이 켜져 있는지 (ABM_GETSTATE). </summary>
+        /// <summary> 묻는 작업이 돌고 있지 않으면 백그라운드에서 자동 숨김 · 주 작업표시줄 변을 새로 묻는다. 기다리지 않고 바로 돌아온다. </summary>
+        private static void RequestAppBarState() {
+            LogAppBarErrorOnce();
+
+            if (Interlocked.CompareExchange(ref _isAppBarQueryRunning, 1, 0) != 0) {
+                return;
+            }
+
+            Task.Run(QueryAppBarState);
+        }
+
+        /// <summary> 백그라운드 스레드에서 돈다. 유니티 API 를 부르지 않고 답과 실패만 남긴다. </summary>
+        private static void QueryAppBarState() {
+            try {
+                bool isAutoHide = IsTaskbarAutoHide();
+                DESK_TASKBAR_EDGE edge = GetPrimaryTaskbarEdge();
+
+                lock (APP_BAR_LOCK) {
+                    _appBarAutoHide = isAutoHide;
+                    _appBarEdge = edge;
+                    _appBarError = null;
+                }
+            }
+            catch (Exception e) {
+                lock (APP_BAR_LOCK) {
+                    _appBarError = e;
+                }
+            }
+            finally {
+                Interlocked.Exchange(ref _isAppBarQueryRunning, 0);
+            }
+        }
+
+        /// <summary> 마지막으로 받은 자동 숨김 · 주 작업표시줄 변. 아직 답을 못 받았으면 자동 숨김 꺼짐 · NONE (변은 창 사각형으로 구한다). </summary>
+        private static void ReadAppBarState(out bool isAutoHide, out DESK_TASKBAR_EDGE edge) {
+            lock (APP_BAR_LOCK) {
+                isAutoHide = _appBarAutoHide;
+                edge = _appBarEdge;
+            }
+        }
+
+        /// <summary> 백그라운드에서 난 실패를 메인 스레드에서 한 번만 남긴다. 다시 성공하면 다음 실패를 또 남긴다. </summary>
+        private static void LogAppBarErrorOnce() {
+            Exception error;
+
+            lock (APP_BAR_LOCK) {
+                error = _appBarError;
+            }
+
+            if (error == null) {
+                _isAppBarErrorLogged = false;
+                return;
+            }
+
+            if (_isAppBarErrorLogged) {
+                return;
+            }
+
+            _isAppBarErrorLogged = true;
+            Debug.LogWarning($"[DeskPlatform.Windows] 작업표시줄 자동 숨김 · 변을 묻지 못했습니다. 창 자리로만 구합니다: {error.Message}");
+        }
+
+        /// <summary> 작업표시줄 자동 숨김이 켜져 있는지 (ABM_GETSTATE). 탐색기를 기다리므로 백그라운드에서만 부른다. </summary>
         private static bool IsTaskbarAutoHide() {
             NativeAppBarData data = CreateAppBarData();
             ulong state = NativeMethods.SHAppBarMessage(NativeMethods.ABM_GETSTATE, ref data).ToUInt64();
             return (state & NativeMethods.ABS_AUTOHIDE) != 0;
         }
 
-        /// <summary> OS 가 알려 주는 주 작업표시줄 변 (ABM_GETTASKBARPOS). 실패하면 NONE. </summary>
+        /// <summary> OS 가 알려 주는 주 작업표시줄 변 (ABM_GETTASKBARPOS). 실패하면 NONE. 탐색기를 기다리므로 백그라운드에서만 부른다. </summary>
         private static DESK_TASKBAR_EDGE GetPrimaryTaskbarEdge() {
             NativeAppBarData data = CreateAppBarData();
 

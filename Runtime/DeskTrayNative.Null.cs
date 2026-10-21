@@ -45,6 +45,10 @@ namespace LifeLogs.WindowUtil {
             return false;
         }
 
+        /// <summary> 다시 등록할 아이콘이 없다 </summary>
+        internal static void Pump() {
+        }
+
         /// <summary> 올라올 입력이 없다 </summary>
         internal static DESK_TRAY_SIGNAL TakeSignal() {
             return DESK_TRAY_SIGNAL.NONE;

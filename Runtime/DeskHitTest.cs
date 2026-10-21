@@ -5,8 +5,10 @@ using UnityEngine;
 namespace LifeLogs.WindowUtil {
 
     /// <summary>
-    /// 커서 아래 픽셀의 알파를 읽어 클릭을 받을지 흘려보낼지 매 프레임 정하는 판정기.
+    /// 커서 아래 픽셀의 알파를 읽어 클릭을 받을지 흘려보낼지 정하는 판정기.
     /// 그려진 것이 있으면 클릭을 받고, 비어 있으면 바탕화면으로 넘긴다.
+    /// 픽셀 읽기(ReadPixels)는 CPU 가 GPU 작업이 끝나기를 기다리게 해, GPU 가 바쁘거나 절전 복귀 · 화면 구성 변경 중이면 메인 스레드가 그만큼 멈춘다.
+    /// 그래서 매 프레임이 아니라 커서가 움직이는 동안 0.05초, 멈춰 있으면 0.25초마다만 읽는다.
     /// </summary>
     internal sealed class DeskHitTest : MonoBehaviour {
 
@@ -15,11 +17,19 @@ namespace LifeLogs.WindowUtil {
         /// <summary> 이 알파부터 "그려진 것" 으로 본다. 반투명 그림자까지 클릭을 먹지 않도록 낮게 잡는다. </summary>
         private const float OPAQUE_ALPHA = 0.1f;
 
+        /// <summary> 커서가 움직이는 동안 판정하는 간격(초). 커서를 그림 위로 옮긴 뒤 이 시간 안에 클릭을 받게 된다. </summary>
+        private const float MOVING_SAMPLE_SECONDS = 0.05f;
+
+        /// <summary> 커서가 멈춰 있을 때 판정하는 간격(초). 커서 아래로 창이 새로 뜨는 것처럼 그림이 바뀐 것을 이 시간 안에 따라간다. </summary>
+        private const float IDLE_SAMPLE_SECONDS = 0.25f;
+
         private static DeskHitTest _instance;
         private static bool _isProbeEnabled;
 
         private Texture2D _sample;
         private Coroutine _routine;
+        private Vector2Int _lastCursor;
+        private float _lastSampleTime = float.NegativeInfinity;
 
         /// <summary> 판정기가 돌고 있는지 여부 </summary>
         internal static bool IsRunning => _instance != null;
@@ -29,7 +39,7 @@ namespace LifeLogs.WindowUtil {
 
         /// <summary>
         /// 빈 자리 알파 진단을 돌릴지 여부. 기본은 꺼져 있다.
-        /// 클릭 통과 판정과 무관한 진단 전용인데 켜 두면 매 프레임 ReadPixels 가 한 번 더 돌아
+        /// 클릭 통과 판정과 무관한 진단 전용인데 켜 두면 판정마다 ReadPixels 가 한 번 더 돌아
         /// GPU 동기화 비용이 두 배가 되므로, 투명이 안 나오는 원인을 볼 때만 켠다.
         /// </summary>
         internal static bool IsBackgroundAlphaProbeEnabled {
@@ -91,12 +101,16 @@ namespace LifeLogs.WindowUtil {
             }
         }
 
-        /// <summary> 화면이 다 그려진 뒤라야 픽셀을 읽을 수 있으므로 프레임 끝까지 기다린다. </summary>
+        /// <summary> 화면이 다 그려진 뒤라야 픽셀을 읽을 수 있으므로 프레임 끝까지 기다린다. 판정할 때가 된 프레임에만 읽는다. </summary>
         private IEnumerator SampleEachFrame() {
             WaitForEndOfFrame endOfFrame = new WaitForEndOfFrame();
 
             while (true) {
                 yield return endOfFrame;
+
+                if (!IsSampleDue()) {
+                    continue;
+                }
 
                 try {
                     if (_isProbeEnabled) {
@@ -111,6 +125,22 @@ namespace LifeLogs.WindowUtil {
             }
         }
 
+        /// <summary> 커서가 움직였으면 MOVING_SAMPLE_SECONDS, 아니면 IDLE_SAMPLE_SECONDS 가 지났는지. 판정할 때가 되면 커서 자리와 시각을 남긴다. </summary>
+        private bool IsSampleDue() {
+            float now = Time.unscaledTime;
+            bool hasCursor = DeskPlatform.TryGetCursorPosition(out Vector2Int cursor);
+            bool isMoving = hasCursor && cursor != _lastCursor;
+            float interval = isMoving ? MOVING_SAMPLE_SECONDS : IDLE_SAMPLE_SECONDS;
+
+            if (now - _lastSampleTime < interval) {
+                return false;
+            }
+
+            _lastSampleTime = now;
+            _lastCursor = cursor;
+            return true;
+        }
+
         /// <summary>
         /// 화면 왼쪽 아래 구석의 알파를 남긴다.
         /// 투명이 안 나올 때 유니티가 알파를 1로 밀고 있는지 창 쪽 문제인지 가르기 위한 값이다.
@@ -119,9 +149,8 @@ namespace LifeLogs.WindowUtil {
         private void SampleBackgroundAlpha() {
             EnsureSampleTexture();
 
+            // GetPixel 은 CPU 쪽 값을 읽으므로 GPU 로 올리는 Apply 는 하지 않는다
             _sample.ReadPixels(new Rect(0, 0, 1, 1), 0, 0, false);
-            _sample.Apply(false);
-
             LastBackgroundAlpha = _sample.GetPixel(0, 0).a;
         }
 
@@ -134,8 +163,6 @@ namespace LifeLogs.WindowUtil {
             EnsureSampleTexture();
 
             _sample.ReadPixels(new Rect(x, y, 1, 1), 0, 0, false);
-            _sample.Apply(false);
-
             return _sample.GetPixel(0, 0).a >= OPAQUE_ALPHA;
         }
 

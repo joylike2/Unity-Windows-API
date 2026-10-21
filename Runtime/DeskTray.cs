@@ -437,7 +437,7 @@ namespace LifeLogs.WindowUtil {
         }
 
         /// <summary>
-        /// 트레이에서 올라온 입력을 처리한다. DeskEventPump 가 매 프레임 부른다.
+        /// 실패한 아이콘 등록을 다시 하고(탐색기 재시작 포함), 트레이에서 올라온 입력을 처리한다. DeskEventPump 가 매 프레임 부른다.
         /// WndProc 안에서 유니티 코드를 부르면 네이티브 경계를 넘게 되므로 여기까지 미룬다.
         /// </summary>
         internal static void Tick() {
@@ -445,6 +445,7 @@ namespace LifeLogs.WindowUtil {
                 return;
             }
 
+            DeskTrayNative.Pump();
             DESK_TRAY_SIGNAL signal = DeskTrayNative.TakeSignal();
 
             if (signal == DESK_TRAY_SIGNAL.NONE) {

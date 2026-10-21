@@ -1,6 +1,6 @@
 {
   "name": "dev.lifelogs.unity-windows-api",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "displayName": "Unity Windows API",
   "description": "A Unity desktop window control library. Handles monitors, resolutions, display modes, always-on-top, cursor confinement, frame rate and tray icons for PC games, plus borderless, transparent and click-through windows for wallpaper games. One static API, no platform branching in game code.",
   "author": {

@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace LifeLogs.WindowUtil {
@@ -11,6 +12,9 @@ namespace LifeLogs.WindowUtil {
     /// 트레이 아이콘의 Win32 구현.
     /// 유니티 창의 WndProc 을 가로채지 않고 보이지 않는 창을 따로 만들어 씁니다.
     /// 유니티 창을 서브클래싱하면 에디터에서 도메인이 갈아엎일 때 에디터가 통째로 죽습니다.
+    /// 아이콘 등록 · 바꾸기 · 지우기(Shell_NotifyIcon)는 탐색기가 답할 때까지 기다리는 호출이라, 탐색기가 바쁘면(로그인 직후 자동 실행 등)
+    /// 메인 스레드가 몇 초씩 멈춰 "응답 없음"이 뜰 수 있습니다. 그래서 백그라운드에서 순서대로 보내고, 등록에 실패하면 잠시 뒤 다시 등록하며,
+    /// 탐색기가 다시 켜지면(TaskbarCreated) 아이콘을 다시 답니다.
     /// </summary>
     internal static class DeskTrayNative {
 
@@ -24,6 +28,15 @@ namespace LifeLogs.WindowUtil {
 
         private const int TOOLTIP_MAX_LENGTH = 127;
 
+        // 등록에 실패했을 때 다시 등록하기까지 기다리는 시간(초)
+        private const float ADD_RETRY_SECONDS = 3f;
+
+        // 끌 때 아이콘 지우기를 기다리는 최대 시간(밀리초). 탐색기가 멈춰 있으면 기다리지 않고 창을 닫는다(아이콘은 마우스를 올리면 사라진다)
+        private const int DESTROY_WAIT_MILLISECONDS = 500;
+
+        // 탐색기가 다시 켜질 때 모든 최상위 창에 보내는 메시지 이름
+        private const string TASKBAR_CREATED_MESSAGE = "TaskbarCreated";
+
         // 델리게이트를 지역 변수로 넘기면 GC 수거 후 OS 가 죽은 주소를 호출해 크래시합니다.
         private static readonly WndProcDelegate WND_PROC = TrayWindowProc;
 
@@ -35,9 +48,21 @@ namespace LifeLogs.WindowUtil {
         // WndProc 이 적고 메인 루프가 가져갑니다. 둘 다 유니티 메인 스레드라 잠금이 필요 없습니다.
         private static DESK_TRAY_SIGNAL _pendingSignal;
 
+        // 아이콘 메시지를 보내는 백그라운드 작업 사슬. 앞 작업이 끝나야 다음이 돌아 등록 · 바꾸기 · 지우기 순서가 지켜진다. 메인 스레드에서만 잇는다
+        private static Task _iconWork = Task.CompletedTask;
+        private static string _tooltip;
+        private static uint _taskbarCreatedMessage;
+
+        // 등록이 필요한지(처음 · 실패 · 탐색기 재시작)와 다음 등록 시각. 백그라운드 작업과 WndProc 이 적고 Pump 가 읽는다
+        private static volatile bool _needsAdd;
+        private static volatile bool _isAddRunning;
+        private static volatile int _lastAddError;
+        private static float _nextAddTime;
+        private static bool _isAddErrorLogged;
+
         #region 수명
 
-        /// <summary> 숨은 창을 만들고 트레이에 아이콘을 등록한다 </summary>
+        /// <summary> 숨은 창을 만들고 트레이에 아이콘 등록을 보낸다. 등록은 백그라운드에서 하고 실패하면 Pump 가 다시 등록한다. 창을 못 만들면 false </summary>
         internal static bool Create(string tooltip, DeskTrayIconSource icon) {
             if (_windowHandle != IntPtr.Zero) {
                 return true;
@@ -48,23 +73,62 @@ namespace LifeLogs.WindowUtil {
             }
 
             _iconHandle = LoadIconHandle(icon, out _ownsIcon);
+            _tooltip = tooltip;
+            _taskbarCreatedMessage = NativeMethods.RegisterWindowMessage(TASKBAR_CREATED_MESSAGE);
+            _isAddErrorLogged = false;
+            QueueAdd();
+            return true;
+        }
 
-            if (!SendIconMessage(NativeMethods.NIM_ADD, tooltip)) {
-                Debug.LogError($"[DeskTrayNative] 트레이 아이콘 등록에 실패했습니다. (오류 {Marshal.GetLastWin32Error()})");
-                Destroy();
-                return false;
+        /// <summary>
+        /// DeskTray 가 매 프레임 부른다. 등록이 필요하고(실패 · 탐색기 재시작) 기다릴 시간이 지났으면 다시 등록하고, 실패는 한 번만 남긴다.
+        /// </summary>
+        internal static void Pump() {
+            if (_windowHandle == IntPtr.Zero || !_needsAdd || _isAddRunning) {
+                return;
             }
 
-            return true;
+            if (_lastAddError != 0 && !_isAddErrorLogged) {
+                _isAddErrorLogged = true;
+                Debug.LogWarning($"[DeskTrayNative] 트레이 아이콘 등록에 실패해 {ADD_RETRY_SECONDS}초마다 다시 등록합니다. (오류 {_lastAddError})");
+            }
+
+            if (Time.unscaledTime < _nextAddTime) {
+                return;
+            }
+
+            QueueAdd();
+        }
+
+        /// <summary> 백그라운드에서 아이콘을 등록한다. 실패하면 Pump 가 잠시 뒤 다시 부른다. </summary>
+        private static void QueueAdd() {
+            _needsAdd = false;
+            _isAddRunning = true;
+            _nextAddTime = Time.unscaledTime + ADD_RETRY_SECONDS;
+            QueueIconMessage(NativeMethods.NIM_ADD, _tooltip, (isSuccess, error) => {
+                if (isSuccess) {
+                    _lastAddError = 0;
+                }
+                else {
+                    _lastAddError = error;
+                    _needsAdd = true;
+                }
+
+                _isAddRunning = false;
+            });
         }
 
         /// <summary> 아이콘을 내리고 만들어 둔 자원을 전부 되돌린다 </summary>
         internal static void Destroy() {
             if (_windowHandle != IntPtr.Zero) {
-                SendIconMessage(NativeMethods.NIM_DELETE, null);
+                QueueIconMessage(NativeMethods.NIM_DELETE, null, null);
+                WaitIconWork();
                 NativeMethods.DestroyWindow(_windowHandle);
                 _windowHandle = IntPtr.Zero;
             }
+
+            _needsAdd = false;
+            _tooltip = null;
 
             // 실행 파일이나 파일에서 뽑아온 아이콘만 우리 것입니다. 공용 아이콘을 지우면 안 됩니다.
             if (_ownsIcon && _iconHandle != IntPtr.Zero) {
@@ -123,16 +187,45 @@ namespace LifeLogs.WindowUtil {
 
         #region 아이콘
 
-        /// <summary> 툴팁 글자를 바꾼다 </summary>
+        /// <summary> 툴팁 글자를 바꾼다. 백그라운드에서 보내고 기다리지 않는다. 아직 등록 전이면 다음 등록에 쓴다. </summary>
         internal static bool SetTooltip(string tooltip) {
             if (_windowHandle == IntPtr.Zero) {
                 return false;
             }
 
-            return SendIconMessage(NativeMethods.NIM_MODIFY, tooltip);
+            _tooltip = tooltip;
+            QueueIconMessage(NativeMethods.NIM_MODIFY, tooltip, null);
+            return true;
         }
 
-        private static bool SendIconMessage(uint message, string tooltip) {
+        /// <summary>
+        /// 아이콘 메시지를 작업 사슬 끝에 붙여 백그라운드에서 보낸다. 보낼 값은 지금(메인 스레드) 정해 넘긴다.
+        /// onDone 은 백그라운드 스레드에서 성공 여부와 Win32 오류 번호로 불리므로 유니티 API 를 부르면 안 된다.
+        /// </summary>
+        private static void QueueIconMessage(uint message, string tooltip, Action<bool, int> onDone) {
+            NativeNotifyIconData data = CreateIconData(message, tooltip);
+            _iconWork = _iconWork.ContinueWith(_ => {
+                bool isSuccess = NativeMethods.Shell_NotifyIcon(message, ref data);
+                int error = isSuccess ? 0 : Marshal.GetLastWin32Error();
+                onDone?.Invoke(isSuccess, error);
+            }, TaskScheduler.Default);
+        }
+
+        /// <summary> 보낸 아이콘 메시지가 끝나기를 정한 시간까지만 기다린다. 끌 때만 부른다. </summary>
+        private static void WaitIconWork() {
+            try {
+                if (!_iconWork.Wait(DESTROY_WAIT_MILLISECONDS)) {
+                    Debug.LogWarning($"[DeskTrayNative] 탐색기가 답하지 않아 트레이 아이콘 지우기를 {DESTROY_WAIT_MILLISECONDS}ms 만 기다리고 닫습니다.");
+                }
+            }
+            catch (AggregateException e) {
+                Debug.LogWarning($"[DeskTrayNative] 트레이 아이콘 메시지를 보내다 예외가 났습니다: {e.InnerException?.Message}");
+            }
+
+            _iconWork = Task.CompletedTask;
+        }
+
+        private static NativeNotifyIconData CreateIconData(uint message, string tooltip) {
             NativeNotifyIconData data = new NativeNotifyIconData {
                 cbSize = (uint)Marshal.SizeOf(typeof(NativeNotifyIconData)),
                 hWnd = _windowHandle,
@@ -151,7 +244,7 @@ namespace LifeLogs.WindowUtil {
                 }
             }
 
-            return NativeMethods.Shell_NotifyIcon(message, ref data);
+            return data;
         }
 
         /// <summary> 툴팁은 길이 제한이 있어 넘치면 잘라야 한다. 안 자르면 등록 자체가 실패한다. </summary>
@@ -163,7 +256,7 @@ namespace LifeLogs.WindowUtil {
             return tooltip.Length <= TOOLTIP_MAX_LENGTH ? tooltip : tooltip.Substring(0, TOOLTIP_MAX_LENGTH);
         }
 
-        /// <summary> 떠 있는 아이콘의 그림을 바꾼다 </summary>
+        /// <summary> 떠 있는 아이콘의 그림을 바꾼다. 백그라운드에서 보내고, 바뀐 뒤 앞 그림을 지운다. 그림을 못 만들면 false </summary>
         internal static bool SetIcon(DeskTrayIconSource icon) {
             if (_windowHandle == IntPtr.Zero) {
                 return false;
@@ -181,16 +274,12 @@ namespace LifeLogs.WindowUtil {
             _iconHandle = replacement;
             _ownsIcon = owns;
 
-            if (!SendIconMessage(NativeMethods.NIM_MODIFY, null)) {
-                Debug.LogError($"[DeskTrayNative] 아이콘 교체에 실패했습니다. (오류 {Marshal.GetLastWin32Error()})");
-                return false;
-            }
-
-            // 교체가 끝난 뒤에 지웁니다. 먼저 지우면 잠깐 빈 아이콘이 보일 수 있습니다.
-            if (ownedPrevious && previous != IntPtr.Zero) {
-                NativeMethods.DestroyIcon(previous);
-            }
-
+            // 교체가 끝난 뒤에 지웁니다. 먼저 지우면 잠깐 빈 아이콘이 보일 수 있습니다. 실패하면 앞 그림을 남겨 둡니다(전과 같음)
+            QueueIconMessage(NativeMethods.NIM_MODIFY, null, (isSuccess, error) => {
+                if (isSuccess && ownedPrevious && previous != IntPtr.Zero) {
+                    NativeMethods.DestroyIcon(previous);
+                }
+            });
             return true;
         }
 
@@ -428,6 +517,13 @@ namespace LifeLogs.WindowUtil {
         [AOT.MonoPInvokeCallback(typeof(WndProcDelegate))]
         private static IntPtr TrayWindowProc(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam) {
             try {
+                // 탐색기가 다시 켜지면 트레이가 비므로 다시 등록한다 (Pump 가 백그라운드로 보낸다)
+                if (message != 0 && message == _taskbarCreatedMessage) {
+                    _needsAdd = true;
+                    _nextAddTime = 0f;
+                    return IntPtr.Zero;
+                }
+
                 if (message == NativeMethods.WM_TRAY_CALLBACK) {
                     // 어떤 마우스 동작인지는 lParam 의 하위 16비트에 들어온다.
                     int mouseMessage = (int)(lParam.ToInt64() & 0xFFFF);
@@ -755,6 +851,9 @@ namespace LifeLogs.WindowUtil {
 
             [DllImport("shell32.dll", CharSet = CharSet.Unicode, EntryPoint = "Shell_NotifyIconW", SetLastError = true)]
             public static extern bool Shell_NotifyIcon(uint dwMessage, ref NativeNotifyIconData lpData);
+
+            [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "RegisterWindowMessageW", SetLastError = true)]
+            public static extern uint RegisterWindowMessage(string lpString);
 
             [DllImport("shell32.dll", CharSet = CharSet.Unicode, EntryPoint = "ExtractIconW")]
             public static extern IntPtr ExtractIcon(IntPtr hInst, string exeFileName, int iconIndex);
