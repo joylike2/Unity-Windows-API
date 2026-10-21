@@ -42,7 +42,7 @@ https://github.com/joylike2/Unity-Windows-API.git
 - 특정 버전을 고정하려면 태그를 붙입니다.
 
 ```none
-https://github.com/joylike2/Unity-Windows-API.git#v1.0.0
+https://github.com/joylike2/Unity-Windows-API.git#v1.1.1
 ```
 
 　
@@ -377,7 +377,7 @@ IReadOnlyList<DeskTaskbarInfo> all = WindowDeskAPI.GetTaskbars();   // 모든 �
 
 #### 작업표시줄 호출 함수
 
-모두 `WindowDeskAPI` 의 정적 멤버입니다. `monitorIndex` 를 받는 함수는 음수(기본값 `-1`)면 창이 놓인 모니터를 봅니다. 작업표시줄 조회(`GetTaskbars` · `TryGet...Taskbar` · `GetSafeAreaInsets`)는 부를 때마다 작업표시줄을 OS 에서 새로 읽으므로 매 프레임 부르지 말고 바뀜 알림 때 다시 읽으십시오.
+모두 `WindowDeskAPI` 의 정적 멤버입니다. `monitorIndex` 를 받는 함수는 음수(기본값 `-1`)면 창이 놓인 모니터를 봅니다. 작업표시줄 조회(`GetTaskbars` · `TryGet...Taskbar` · `GetSafeAreaInsets`)는 부를 때마다 작업표시줄 창을 OS 에서 새로 읽으므로(자동 숨김 · OS 가 알려 주는 변은 백그라운드에서 받은 마지막 답) 매 프레임 부르지 말고 바뀜 알림 때 다시 읽으십시오.
 
 | 함수 | 돌려주는 값 | 못 읽을 때 |
 |---|---|---|
