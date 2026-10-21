@@ -1102,7 +1102,7 @@ namespace LifeLogs.WindowUtil {
         /// <see cref="Initialize(DESK_WINDOW_PROFILE)"/> 와 무관하게 단독으로 부를 수 있습니다.
         /// 아이콘은 게임이 끝날 때 자동으로 내려갑니다.
         /// </summary>
-        /// <returns>아이콘이 떴으면 true. Windows 가 아니면 false.</returns>
+        /// <returns>아이콘을 받을 창을 만들고 등록을 보냈으면 true (등록은 백그라운드에서 하고 실패하면 다시 등록). Windows 가 아니거나 창을 못 만들면 false.</returns>
         public static bool EnableTray() {
             return DeskTray.Enable();
         }
@@ -1119,7 +1119,7 @@ namespace LifeLogs.WindowUtil {
         /// 툴팁을 지정해서 트레이 아이콘을 띄웁니다.
         /// </summary>
         /// <param name="tooltip">아이콘에 마우스를 올렸을 때 나올 글자.</param>
-        /// <returns>아이콘이 떴으면 true. Windows 가 아니면 false.</returns>
+        /// <returns>아이콘을 받을 창을 만들고 등록을 보냈으면 true (등록은 백그라운드에서 하고 실패하면 다시 등록). Windows 가 아니거나 창을 못 만들면 false.</returns>
         public static bool EnableTray(string tooltip) {
             return DeskTray.Enable(tooltip);
         }
